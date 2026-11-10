@@ -704,7 +704,7 @@ $$("dialog [data-close]").forEach(b => b.addEventListener("click", () => b.close
 /* ================= editor da mão ================= */
 // imgs: [{key, id?, path?, url, caption, origCaption, blob?, removed}]
 // decs: [{key, id?, imgKey, street, situation, question, tags, conclusion, status, plantao, plantao_answer, leak_id, ai, dirty}]
-const H = { hand: null, imgs: [], decs: [], removedDecIds: [], aiRuns: 0 };
+const H = { hand: null, imgs: [], decs: [], removedDecIds: [], aiRuns: 0, lobby: null, pasteLobby: false };
 const dlgHand = $("#dlg-hand");
 let keySeq = 0;
 const newKey = () => "k" + (++keySeq);
@@ -725,6 +725,9 @@ function openHand(id, files = [], opts = {}) {
     plantao: !!d.plantao, plantao_answer: d.plantao_answer || "", leak_id: d.leak_id, ai: false, dirty: false
   })) : [];
   if (opts.doubt) H.decs.push(blankDec({ plantao: true, dirty: true }));
+  const lb = h ? lobbyOf(h.id) : null;
+  H.lobby = lb ? { id: lb.id, path: lb.path, url: S.urls.get(lb.path) || "" } : null;
+  H.pasteLobby = false;
 
   $("#h-head").textContent = h ? "Mão" : (opts.doubt ? "Nova dúvida" : "Nova mão");
   $("#h-date").value = h?.played_on || today();
@@ -738,8 +741,8 @@ function openHand(id, files = [], opts = {}) {
   $$("#f-hand .ai-filled").forEach(el => el.classList.remove("ai-filled"));
   $("#h-del").hidden = !h;
   if (h) armDelete($("#h-del"), "Excluir mão", deleteHand);
-  aiMsg(aiOff ? "Leitura automática desativada (falta a chave da IA na Vercel)." : "Cole os prints da mão e escreva uma legenda curta em cada um (ex.: “cbet 1/3 C. Lead?”). A IA lê tudo sozinha quando você parar de digitar.", aiOff ? "warn" : "");
-  renderGallery(); renderDecs();
+  aiMsg(aiOff ? "Leitura com IA desativada (falta a chave da IA na Vercel)." : "Cole os prints e escreva as legendas. A IA só lê quando você clicar em “Ler com IA”; se preferir, preencha à mão.", aiOff ? "warn" : "");
+  renderGallery(); renderDecs(); renderLobbySlot();
   if (!dlgHand.open) dlgHand.showModal();
   if (files.length) addFiles(files);
   if (opts.focusDec) {
@@ -799,6 +802,39 @@ $("#h-gallery").addEventListener("click", e => {
     renderGallery(); renderDecs(); inputsChanged();
   } else if (z) { $("#viewer-img").src = z.src; $("#dlg-view").showModal(); }
 });
+
+/* ---- print do lobby (para o HRC, sem IA) ---- */
+function renderLobbySlot() {
+  const L = H.lobby, has = !!L?.url;
+  const box = $("#h-lobby");
+  box.className = "lobby-slot" + (H.pasteLobby ? " armed" : "");
+  box.innerHTML = `
+    ${L?.url ? `<img src="${esc(L.url)}" alt="Print do lobby" data-lobby-zoom>` : ""}
+    <div class="txt"><b>Lobby do torneio</b> (opcional, para o HRC). ${H.pasteLobby ? "Agora aperte <kbd>Ctrl</kbd>+<kbd>V</kbd> para colar o lobby." : has ? "Anexado. Na página da dúvida você baixa o .json e copia a mão." : "Não passa pela IA agora: só é lido quando você clicar nos botões do HRC."}</div>
+    <button class="btn sm ${H.pasteLobby ? "primary" : ""}" type="button" data-lobby-act="paste">${H.pasteLobby ? "Cancelar" : has ? "Trocar (Ctrl+V)" : "Colar lobby (Ctrl+V)"}</button>
+    <label class="btn sm ghost" style="cursor:pointer">📎 Arquivo<input type="file" id="h-lobby-file" accept="image/*" hidden></label>
+    ${has ? `<button class="btn sm ghost" type="button" data-lobby-act="remove">Remover</button>` : ""}`;
+}
+async function setEditorLobby(file) {
+  if (!file || !file.type?.startsWith("image/")) return;
+  H.pasteLobby = false;
+  const blob = await compress(file, 2400, 0.92);
+  if (H.lobby?.blob) URL.revokeObjectURL(H.lobby.url);
+  H.lobby = { blob, url: URL.createObjectURL(blob), replaces: H.lobby?.id ? H.lobby : (H.lobby?.replaces || H.lobby?.removed || null) };
+  renderLobbySlot(); toast("Lobby anexado");
+}
+$("#h-lobby").addEventListener("click", e => {
+  const a = e.target.closest("[data-lobby-act]");
+  if (a?.dataset.lobbyAct === "paste") { H.pasteLobby = !H.pasteLobby; renderLobbySlot(); return; }
+  if (a?.dataset.lobbyAct === "remove") {
+    const saved = H.lobby?.id ? H.lobby : H.lobby?.replaces || null; // o lobby que já estava salvo, se houver
+    if (H.lobby?.blob) URL.revokeObjectURL(H.lobby.url);
+    H.lobby = saved ? { removed: saved, url: "" } : null;
+    renderLobbySlot(); return;
+  }
+  if (e.target.closest("[data-lobby-zoom]")) { $("#viewer-img").src = e.target.src; $("#dlg-view").showModal(); }
+});
+$("#h-lobby").addEventListener("change", e => { if (e.target.id === "h-lobby-file") { const f = e.target.files[0]; e.target.value = ""; setEditorLobby(f); } });
 
 /* ---- dúvidas ---- */
 function renderDecs() {
@@ -881,6 +917,8 @@ drop.addEventListener("drop", e => { e.preventDefault(); e.stopPropagation(); dr
 dlgHand.addEventListener("close", () => {
   aiSeq++; clearTimeout(aiTimer);
   H.imgs.forEach(i => { if (i.blob && !i.keepUrl) URL.revokeObjectURL(i.url); });
+  if (H.lobby?.blob && !H.lobby.keepUrl) URL.revokeObjectURL(H.lobby.url);
+  H.lobby = null; H.pasteLobby = false;
   H.imgs = []; H.decs = [];
 });
 $("#f-hand").addEventListener("input", e => { if (!e.target.closest("#h-decs") && !e.target.dataset.cap) e.target.classList.remove("ai-filled"); });
@@ -892,15 +930,10 @@ $("#f-hand").addEventListener("change", e => { if (!e.target.closest("#h-decs"))
 let aiTimer, aiOff = false, aiSeq = 0;
 const AI_IDLE_MS = 3500;
 function aiMsg(text, cls = "") { $("#h-ai-msg").textContent = text; $("#h-ai").className = "ai-bar " + cls; }
+// A IA só roda quando você clica no botão (para não gastar à toa).
 function inputsChanged() {
   if (aiOff || !visibleImgs().length) return;
-  if (H.aiRuns === 0 && !H.hand) {
-    clearTimeout(aiTimer);
-    aiMsg("A IA vai ler os prints assim que você parar de digitar…", "");
-    aiTimer = setTimeout(() => runAI(false), AI_IDLE_MS);
-  } else if (H.aiRuns > 0) {
-    aiMsg("Prints ou legendas mudaram. Clique em “Ler com IA” para atualizar.", "");
-  }
+  if (H.aiRuns > 0) aiMsg("Prints ou legendas mudaram. Clique em “Ler com IA” se quiser atualizar.", "");
 }
 async function runAI(manual) {
   clearTimeout(aiTimer);
@@ -1020,6 +1053,27 @@ $("#f-hand").addEventListener("submit", async e => {
       }
     }
 
+    // lobby
+    const L = H.lobby;
+    const oldLobby = L?.removed || L?.replaces || null;
+    if (L?.blob) {
+      const path = `${S.user.id}/${hand.id}/lobby-${Date.now()}.jpg`;
+      const { error } = await sb.storage.from("hands").upload(path, L.blob, { contentType: "image/jpeg" });
+      if (error) fail(error, "enviar o lobby");
+      else {
+        await q(sb.from("hand_images").insert({ hand_id: hand.id, path, sort: 999, caption: "lobby", kind: "lobby" }), "registrar o lobby");
+        S.urls.set(path, L.url); L.keepUrl = true;
+      }
+    }
+    if (oldLobby?.id && (L?.blob || L?.removed)) {
+      await q(sb.from("hand_images").delete().eq("id", oldLobby.id), "remover o lobby antigo");
+      await sb.storage.from("hands").remove([oldLobby.path]);
+    }
+    if ((L?.blob || L?.removed) && hand.hrc_payouts) {
+      const r = await q(sb.from("hands").update({ hrc_payouts: null }).eq("id", hand.id).select().single(), "limpar a premiação antiga");
+      S.hands = S.hands.map(x => x.id === r.id ? r : x);
+    }
+
     // dúvidas
     if (H.removedDecIds.length) await q(sb.from("decisions").delete().in("id", H.removedDecIds), "remover dúvidas");
     const rows = decs.map((d, k) => ({
@@ -1068,7 +1122,8 @@ document.addEventListener("paste", e => {
   const files = [...(e.clipboardData?.items || [])].filter(i => i.kind === "file" && i.type.startsWith("image/")).map(i => i.getAsFile()).filter(Boolean);
   if (!files.length) return;
   e.preventDefault();
-  if (dlgHand.open) { addFiles(files); toast("Print adicionado"); }
+  if (dlgHand.open && H.pasteLobby) { setEditorLobby(files[0]); }
+  else if (dlgHand.open) { addFiles(files); toast("Print adicionado"); }
   else if (view === "duvida" && HRC.pasteLobby) { HRC.pasteLobby = false; uploadLobby(files[0]); }
   else if (view === "duvida" && $("#cm-text")) addCommentFiles(files);
   else openHand(null, files);
