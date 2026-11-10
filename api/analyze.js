@@ -21,7 +21,7 @@ const TOOL = {
       position: { type: ["string", "null"], description: "Posição do hero, exatamente um nome da lista de posições, ou null." },
       stack_bb: { type: ["number", "null"], description: "Stack do hero em BB no PRIMEIRO print (início da mão)." },
       board: { type: ["string", "null"], description: "Board final (do último print), com naipes pela regra de cores, separado por espaços, usando T para dez. Formato: \"K♠ 7♦ 2♣ Q♥\"." },
-      summary: { type: ["string", "null"], description: "História da mão em português, até 3 frases, só com fatos: contexto do torneio vindo das legendas (ex.: 900 restantes, ITM em 1500), quem abriu e de onde, como o hero entrou, a ação em cada street até a última decisão. Ex.: \"900 restantes (ITM 1500). CO abre 2bb, hero defende no BB. Flop: X/C vs cbet 1/3. Turn: X, vilão aposta 6.5bb.\"" },
+      summary: { type: ["string", "null"], description: "História da mão em português, até 3 frases, só com fatos: contexto do torneio vindo das legendas (ex.: 900 restantes, ITM em 1500), quem abriu e de qual posição (ex.: LJ abre 2bb), como o hero entrou, a ação em cada street até a última decisão. Ex.: \"900 restantes (ITM 1500). CO abre 2bb, hero defende no BB. Flop: X/C vs cbet 1/3. Turn: X, vilão aposta 6.5bb.\"" },
       decisions: {
         type: "array",
         description: "Dúvidas do hero, em ordem cronológica. Em regra, uma por print.",
@@ -63,11 +63,14 @@ Como ler a mesa:
 - Jogador SEM cartas na frente já foldou. Fichas paradas na frente de quem foldou são blind ou aposta morta e NÃO tornam o pote multiway. Conte como ativos só os jogadores com cartas.
 - NAIPES: baralho de 4 cores. Decida o naipe pela COR da carta: verde = ♣, azul = ♦, vermelho = ♥, preto/cinza = ♠. Confira cada carta, uma por uma.
 - Posições possíveis: ${positions.join(", ")}. O botão do dealer é o disco com "D" (às vezes vermelho ou branco) perto de um jogador: ele é o BTN. Em sentido horário a partir do BTN: SB (quem tem 0.5bb no pré-flop), BB (quem tem 1bb), depois as demais até o CO. Mesa de 9: BTN, SB, BB, UTG, UTG+1, UTG+2, LJ, HJ, CO. Mesa de 8: BTN, SB, BB, UTG, UTG+1, LJ, HJ, CO. Com menos jogadores, somem as primeiras depois do BB.
-- Stacks e potes aparecem em BB.
+- Stacks e potes aparecem em BB. ATENÇÃO: o "Pot" mostrado no topo já soma as apostas paradas na mesa nesta street. Ao descrever uma aposta, informe o pote ANTES dela. Ex.: mostra "Pot: 15.6 BB" com aposta de 6.5bb na frente do vilão → "pote 9.1bb, vilão aposta 6.5bb".
+- Identifique a posição de cada jogador relevante (quem abriu, quem apostou) pelo mesmo método do botão, e use o nome da posição na história e nas dúvidas (ex.: "LJ abre 2bb").
 - Salas possíveis: ${sites.join(", ")}. O nome do torneio fica no título da janela.
 
 Dúvidas:
-- Em regra, crie UMA dúvida por print, ligada a ele pelo número. Se um print claramente não tiver dúvida (só mostra contexto), não crie dúvida para ele. Se não houver nenhuma legenda, crie uma dúvida para cada momento de decisão diferente mostrado.
+- Crie EXATAMENTE UMA dúvida para CADA print, na mesma ordem, ligada a ele pelo número. Cada print foi tirado porque o hero teve uma dúvida naquele momento.
+- Se a legenda do print só tiver contexto (ex.: "900 left itm 1500") ou não tiver legenda, deduza a decisão que o hero enfrenta naquele print. Ex.: print pré-flop com hero no BB enfrentando open de 2bb → "Call, 3bet ou fold com AQo no BB vs open de 2bb do LJ?". O contexto da legenda também vai para o resumo.
+- Se a legenda tiver uma ação que já aconteceu + uma pergunta (ex.: "cbet 1/3 C. Lead?"), a ação vai para a história e a pergunta vira a dúvida.
 - Spots possíveis: ${tags.join(" | ")}.
   Exemplos: "lead" = aposta do hero fora de posição como primeiro a agir após ter pagado; "call vs barril turn/river" = hero enfrentando aposta no turn ou river depois de ter pagado antes; "bluff catch" = pagar aposta grande no river com mão que só ganha de blefe; "3bet" e "iso" são decisões pré-flop.
   Marque só o que se encaixa claramente. Na dúvida, não marque.
