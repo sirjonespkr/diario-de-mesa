@@ -117,8 +117,8 @@
         <div class="filters">
           <input type="search" id="f-q" placeholder="Buscar dúvida, legenda, torneio, cartas…" aria-label="Buscar">
           <div class="chips" id="f-status">
-            <button data-s="rever" aria-pressed="true">Para rever</button>
-            <button data-s="revisada">Revisadas</button>
+            <button data-s="rever" aria-pressed="true">Abertas</button>
+            <button data-s="revisada">Resolvidas</button>
             <button data-s="todas">Todas</button>
           </div>
           <select id="f-tag" aria-label="Filtrar por spot"><option value="">Todos os spots</option></select>
@@ -128,6 +128,9 @@
         <div class="drop-hint" id="drop-hint">Cole um print (<kbd>Ctrl</kbd>+<kbd>V</kbd>) ou arraste imagens aqui para criar uma mão. Cada card abaixo é uma dúvida.</div>
         <div class="hand-grid" id="hand-grid"></div>
       </section>
+
+      <!-- DÚVIDA -->
+      <section class="view" id="v-duvida" hidden></section>
 
       <!-- PLANTÃO -->
       <section class="view" id="v-plantao" hidden>
@@ -228,6 +231,21 @@
       <button class="btn primary" type="submit">Salvar</button>
     </div>
   </form>
+</dialog>
+
+<!-- APRESENTAR -->
+<dialog id="dlg-show" class="show">
+  <div class="show-top">
+    <span class="show-pos num" id="show-pos"></span>
+    <span class="show-cap" id="show-cap"></span>
+    <button class="icon-btn" type="button" data-close aria-label="Fechar">✕</button>
+  </div>
+  <div class="show-stage">
+    <button class="show-nav" type="button" id="show-prev" aria-label="Print anterior">‹</button>
+    <img id="show-img" alt="Print da mão">
+    <button class="show-nav" type="button" id="show-next" aria-label="Próximo print">›</button>
+  </div>
+  <div class="show-q" id="show-q"></div>
 </dialog>
 
 <!-- VISUALIZADOR -->

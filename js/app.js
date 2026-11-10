@@ -33,7 +33,7 @@ function fail(e, what) {
 const configured = !SUPABASE_URL.startsWith("COLE_") && !!window.supabase;
 const sb = configured ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
-const S = { user: null, hands: [], images: [], decisions: [], events: [], tasks: [], pregrind: [], leaks: [], tags: [], urls: new Map() };
+const S = { user: null, hands: [], images: [], decisions: [], comments: [], events: [], tasks: [], pregrind: [], leaks: [], tags: [], urls: new Map() };
 
 async function q(promise, what) {
   const { data, error } = await promise;
@@ -42,7 +42,7 @@ async function q(promise, what) {
 }
 
 async function loadAll() {
-  const [hands, images, decisions, events, tasks, pregrind, leaks, tags] = await Promise.all([
+  const [hands, images, decisions, events, tasks, pregrind, leaks, tags, comments] = await Promise.all([
     q(sb.from("hands").select("*").order("created_at", { ascending: false }), "carregar as mãos"),
     q(sb.from("hand_images").select("*").order("sort"), "carregar os prints"),
     q(sb.from("decisions").select("*").order("sort"), "carregar as dúvidas (rodou o SQL 003?)"),
@@ -50,16 +50,17 @@ async function loadAll() {
     q(sb.from("tasks").select("*").order("created_at"), "carregar as tarefas"),
     q(sb.from("pregrind").select("*").order("created_at"), "carregar o pré-grind"),
     q(sb.from("leaks").select("*").order("created_at"), "carregar os leaks"),
-    q(sb.from("tags").select("*").order("sort"), "carregar os spots")
+    q(sb.from("tags").select("*").order("sort"), "carregar os spots"),
+    q(sb.from("comments").select("*").order("created_at"), "carregar os comentários (rodou o SQL 004?)").catch(() => [])
   ]);
-  Object.assign(S, { hands, images, decisions, events, tasks, pregrind, leaks, tags });
+  Object.assign(S, { hands, images, decisions, events, tasks, pregrind, leaks, tags, comments });
   if (!tags.length) {
     const rows = DEFAULT_TAGS.map((name, i) => ({ user_id: S.user.id, name, sort: i }));
     const { error } = await sb.from("tags").upsert(rows, { onConflict: "user_id,name", ignoreDuplicates: true });
     if (error) console.error(error);
     S.tags = await q(sb.from("tags").select("*").order("sort"), "carregar os spots");
   }
-  await signImages(images.map(i => i.path));
+  await signImages([...images.map(i => i.path), ...comments.flatMap(c => c.images || [])]);
 }
 
 async function signImages(paths) {
@@ -72,6 +73,9 @@ async function signImages(paths) {
 }
 const imagesOf = id => S.images.filter(i => i.hand_id === id).sort((a, b) => a.sort - b.sort);
 const decisionsOf = id => S.decisions.filter(d => d.hand_id === id).sort((a, b) => a.sort - b.sort);
+const commentsOf = id => S.comments.filter(c => c.decision_id === id).sort((a, b) => a.created_at.localeCompare(b.created_at));
+// uma dúvida do plantão conta como respondida se tem resposta, comentário fixado ou está resolvida
+const isAnswered = d => !!(d.plantao_answer || d.status === "revisada" || (d.id && S.comments.some(c => c.decision_id === d.id && c.pinned)));
 
 /* ================= auth ================= */
 async function boot() {
@@ -117,12 +121,16 @@ $("#signup-btn").addEventListener("click", async () => {
 $("#logout").addEventListener("click", () => sb.auth.signOut());
 
 /* ================= routing ================= */
-const VIEWS = ["hoje", "agenda", "pregrind", "maos", "plantao", "leaks", "ajustes"];
+const VIEWS = ["hoje", "agenda", "pregrind", "maos", "duvida", "plantao", "leaks", "ajustes"];
+let currentDec = null;
 let view = "hoje";
 function route() {
-  view = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "hoje";
+  const hash = location.hash.slice(1);
+  if (hash.startsWith("duvida-")) { view = "duvida"; currentDec = hash.slice(7); showIdx = null; }
+  else view = VIEWS.includes(hash) ? hash : "hoje";
   VIEWS.forEach(v => { $("#v-" + v).hidden = v !== view; });
-  $$(".side-nav a").forEach(a => { if (a.dataset.view === view) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
+  const navView = view === "duvida" ? (backTo === "plantao" ? "plantao" : "maos") : view;
+  $$(".side-nav a").forEach(a => { if (a.dataset.view === navView) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   closeSide();
   window.scrollTo(0, 0);
 }
@@ -134,12 +142,12 @@ $("#side-close").addEventListener("click", closeSide);
 $("#scrim").addEventListener("click", closeSide);
 
 /* ================= render ================= */
-function renderAll() { renderBadges(); renderToday(); renderAgenda(); renderPregrind(); renderLibrary(); renderPlantao(); renderLeaks(); renderTags(); }
+function renderAll() { renderBadges(); renderToday(); renderAgenda(); renderPregrind(); renderLibrary(); renderPlantao(); renderLeaks(); renderTags(); if (view === "duvida") renderDoubt(); }
 
 function counts() {
   return {
     rever: S.decisions.filter(d => d.status !== "revisada").length,
-    plantao: S.decisions.filter(d => d.plantao && !d.plantao_answer).length,
+    plantao: S.decisions.filter(d => d.plantao && !isAnswered(d)).length,
     pregrind: S.pregrind.filter(p => !p.done).length
   };
 }
@@ -162,7 +170,7 @@ function renderToday() {
   $("#today-title").textContent = title.charAt(0).toUpperCase() + title.slice(1);
   const c = counts();
   $("#kpis").innerHTML = `
-    <a class="kpi gold" href="#maos"><b>${c.rever}</b><span>Dúvidas para rever</span></a>
+    <a class="kpi gold" href="#maos"><b>${c.rever}</b><span>Dúvidas abertas</span></a>
     <a class="kpi" href="#plantao"><b>${c.plantao}</b><span>Dúvidas pro plantão</span></a>
     <a class="kpi green" href="#pregrind"><b>${c.pregrind}</b><span>Lembretes do pré-grind</span></a>`;
   const evs = eventsOn(t);
@@ -228,25 +236,33 @@ function decCard({ d, h }) {
   const img = (d.image_id && imgs.find(i => i.id === d.image_id)) || imgs[0];
   const url = img && S.urls.get(img.path);
   const all = decisionsOf(h.id), idx = all.findIndex(x => x.id === d.id);
-  const showAnswer = view === "plantao" && d.plantao_answer;
+  const pin = d.id ? commentsOf(d.id).find(c => c.pinned) : null;
+  const answer = d.plantao_answer || pin?.body || d.conclusion;
+  const showAnswer = view === "plantao" && isAnswered(d) && answer;
+  const ncm = d.id ? commentsOf(d.id).length : 0;
   return `<button type="button" class="hand" data-hand="${h.id}" ${d.id ? `data-dec="${d.id}"` : ""}>
     <div class="thumb">${url ? `<img src="${esc(url)}" alt="" loading="lazy">` : `<span class="noimg">?</span>`}${imgs.length > 1 ? `<span class="n">${imgs.length} prints</span>` : ""}</div>
     <div class="body">
       <div class="top">${streetTag(d.street)}${h.hero_cards ? `<span class="cards">${esc(h.hero_cards.split(" · ")[0])}</span>` : ""}${h.position ? `<span class="pos">${esc(h.position)}</span>` : ""}
-        ${d.plantao ? `<span class="st pl">plantão</span>` : ""}<span class="st ${d.status === "revisada" ? "revisada" : "rever"}">${d.status === "revisada" ? "revisada" : "rever"}</span></div>
+        ${d.plantao ? `<span class="st pl">plantão</span>` : ""}<span class="st ${d.status === "revisada" ? "revisada" : "rever"}">${d.status === "revisada" ? "resolvida" : "aberta"}</span></div>
       ${h.tournament || h.site ? `<div class="tour">${esc([h.site, h.tournament].filter(Boolean).join(" · "))}${h.played_on ? " · " + shortDate(h.played_on) : ""}</div>` : ""}
       ${d.question ? `<div class="q">${esc(d.question)}</div>` : `<div class="q muted">Sem dúvida escrita</div>`}
       ${d.situation ? `<div class="sit">${esc(d.situation)}</div>` : ""}
-      ${showAnswer ? `<div class="ans">↳ ${esc(d.plantao_answer)}</div>` : ""}
+      ${showAnswer ? `<div class="ans">↳ ${esc(answer)}</div>` : ""}
       ${d.tags?.length ? `<div class="tags">${d.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}
-      ${all.length > 1 && idx >= 0 ? `<div class="of">dúvida ${idx + 1} de ${all.length} nesta mão</div>` : ""}
+      ${(all.length > 1 && idx >= 0) || ncm ? `<div class="of">${all.length > 1 && idx >= 0 ? `dúvida ${idx + 1} de ${all.length} nesta mão` : ""}${all.length > 1 && idx >= 0 && ncm ? " · " : ""}${ncm ? `${ncm} comentário${ncm === 1 ? "" : "s"}` : ""}</div>` : ""}
     </div></button>`;
 }
 function renderLibrary() {
   $("#f-tag").innerHTML = `<option value="">Todos os spots</option>` + S.tags.map(t => `<option ${F.tag === t.name ? "selected" : ""}>${esc(t.name)}</option>`).join("");
   $("#f-leak").innerHTML = `<option value="">Qualquer leak</option>` + S.leaks.map(l => `<option value="${l.id}" ${F.leak === l.id ? "selected" : ""}>${esc(l.title)}</option>`).join("");
+  const list = filteredItems();
+  $("#hand-grid").innerHTML = list.length ? list.map(decCard).join("")
+    : `<p class="empty" style="grid-column:1/-1">${S.hands.length ? "Nenhuma dúvida com esses filtros." : "Nenhuma mão ainda. Cole um print aqui ou clique em “+ Nova mão”."}</p>`;
+}
+function filteredItems() {
   const words = F.q.toLowerCase().split(/\s+/).filter(Boolean);
-  const list = libraryItems().filter(({ d, h }) => {
+  return libraryItems().filter(({ d, h }) => {
     if (F.status === "rever" && d.status === "revisada") return false;
     if (F.status === "revisada" && d.status !== "revisada") return false;
     if (F.tag && !d.tags?.includes(F.tag)) return false;
@@ -254,13 +270,12 @@ function renderLibrary() {
     if (F.leak && d.leak_id !== F.leak) return false;
     if (words.length) {
       const caps = imagesOf(h.id).map(i => i.caption || "");
-      const hay = [h.tournament, h.situation, h.hero_cards, h.board, h.site, h.position, d.situation, d.question, d.conclusion, d.plantao_answer, STREETS[d.street], ...(d.tags || []), ...caps].join(" ").toLowerCase();
+      const cmts = d.id ? commentsOf(d.id).map(c => c.body || "") : [];
+      const hay = [h.tournament, h.situation, h.hero_cards, h.board, h.site, h.position, d.situation, d.question, d.conclusion, d.plantao_answer, STREETS[d.street], ...(d.tags || []), ...caps, ...cmts].join(" ").toLowerCase();
       if (!words.every(w => hay.includes(w))) return false;
     }
     return true;
   });
-  $("#hand-grid").innerHTML = list.length ? list.map(decCard).join("")
-    : `<p class="empty" style="grid-column:1/-1">${S.hands.length ? "Nenhuma dúvida com esses filtros." : "Nenhuma mão ainda. Cole um print aqui ou clique em “+ Nova mão”."}</p>`;
 }
 $("#f-q").addEventListener("input", e => { F.q = e.target.value; renderLibrary(); });
 $("#f-tag").addEventListener("change", e => { F.tag = e.target.value; renderLibrary(); });
@@ -274,7 +289,7 @@ $("#f-status").addEventListener("click", e => {
 /* ---- plantão ---- */
 function renderPlantao() {
   const items = libraryItems().filter(({ d }) => d.plantao);
-  const open = items.filter(({ d }) => !d.plantao_answer), done = items.filter(({ d }) => d.plantao_answer).slice(0, 40);
+  const open = items.filter(({ d }) => !isAnswered(d)), done = items.filter(({ d }) => isAnswered(d)).slice(0, 40);
   $("#pl-count").textContent = open.length ? `(${open.length})` : "";
   $("#pl-open").innerHTML = open.length ? open.map(decCard).join("") : `<p class="empty" style="grid-column:1/-1">Nada pendente. Marque “Levar pro plantão” numa dúvida ou crie uma dúvida sem mão.</p>`;
   $("#pl-done").innerHTML = done.length ? done.map(decCard).join("") : `<p class="empty" style="grid-column:1/-1">As respostas do coach vão aparecer aqui.</p>`;
@@ -303,6 +318,236 @@ function fillStaticSelects() {
   $("#h-site").innerHTML = `<option value="">—</option>` + siteOpts;
   $("#h-pos").innerHTML = `<option value="">—</option>` + POSITIONS.map(p => `<option>${p}</option>`).join("");
 }
+
+/* ================= tela da dúvida ================= */
+let backTo = "maos";          // de onde veio (biblioteca ou plantão)
+let showIdx = null;           // qual print está em destaque
+const CM = { text: "", files: [] }; // rascunho do comentário
+const fmtWhen = iso => { const d = new Date(iso); return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) + " " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }); };
+
+function doubtNav(d) {
+  const list = (backTo === "plantao" ? libraryItems().filter(x => x.d.plantao) : filteredItems()).filter(x => x.d.id);
+  const pos = list.findIndex(x => x.d.id === d.id);
+  const after = pos >= 0 ? list.slice(pos + 1) : [];
+  return {
+    pos, total: list.length,
+    prev: pos > 0 ? list[pos - 1].d.id : null,
+    next: pos >= 0 && pos < list.length - 1 ? list[pos + 1].d.id : null,
+    nextOpen: (after.find(x => x.d.status !== "revisada") || {}).d?.id || null
+  };
+}
+
+function renderDoubt() {
+  const el = $("#v-duvida");
+  const d = S.decisions.find(x => x.id === currentDec);
+  const backLbl = backTo === "plantao" ? "Plantão" : "Biblioteca";
+  if (!d) {
+    el.innerHTML = `<div class="dv-bar"><a class="btn sm" href="#${backTo}">← ${backLbl}</a></div><p class="empty">Essa dúvida não existe mais.</p>`;
+    return;
+  }
+  const h = S.hands.find(x => x.id === d.hand_id) || {};
+  const imgs = imagesOf(h.id);
+  const myIdx = d.image_id ? imgs.findIndex(i => i.id === d.image_id) : -1;
+  if (showIdx === null || showIdx >= imgs.length) showIdx = myIdx >= 0 ? myIdx : 0;
+  const cur = imgs[showIdx];
+  const nav = doubtNav(d);
+  const decs = decisionsOf(h.id), n = decs.findIndex(x => x.id === d.id);
+  const cms = commentsOf(d.id), pins = cms.filter(c => c.pinned);
+  const resolved = d.status === "revisada";
+  const leak = S.leaks.find(l => l.id === d.leak_id);
+  const fact = (label, val, wide) => val ? `<div class="${wide ? "wide" : ""}"><dt>${label}</dt><dd>${val}</dd></div>` : "";
+
+  el.innerHTML = `
+    <div class="dv-bar">
+      <a class="btn sm" href="#${backTo}">← ${backLbl}</a>
+      <span class="spacer"></span>
+      ${nav.pos >= 0 ? `<span class="muted num" style="font-size:.8rem">${nav.pos + 1} de ${nav.total}</span>` : ""}
+      <button class="btn sm" type="button" data-go="${nav.prev || ""}" ${nav.prev ? "" : "disabled"}>‹ Anterior</button>
+      <button class="btn sm" type="button" data-go="${nav.next || ""}" ${nav.next ? "" : "disabled"}>Próxima ›</button>
+    </div>
+
+    <div class="dv-title">
+      <div class="meta">${streetTag(d.street)}
+        <span class="st ${resolved ? "revisada" : "rever"}" style="margin-left:0">${resolved ? "resolvida" : "aberta"}</span>
+        ${d.plantao ? `<span class="st pl">plantão</span>` : ""}
+        ${decs.length > 1 ? `<span class="muted" style="font-size:.8rem">Dúvida ${n + 1} de ${decs.length} nesta mão</span>` : ""}
+      </div>
+      <h1>${esc(d.question || "Sem pergunta escrita")}</h1>
+      ${d.situation ? `<p class="muted" style="margin:0">${esc(d.situation)}</p>` : ""}
+      <div class="dv-actions">
+        ${resolved
+          ? `<button class="btn" type="button" data-act="reopen">Reabrir dúvida</button>`
+          : `<button class="btn primary" type="button" data-act="resolve">✓ Marcar como resolvida</button>
+             ${nav.nextOpen ? `<button class="btn" type="button" data-act="resolve-next">Resolver e ir para a próxima</button>` : ""}`}
+        <button class="btn" type="button" data-act="plantao" aria-pressed="${!!d.plantao}">${d.plantao ? "✓ No plantão" : "Levar pro plantão"}</button>
+        ${imgs.length ? `<button class="btn" type="button" data-act="show">▶ Apresentar</button>` : ""}
+        <button class="btn ghost" type="button" data-act="edit">Editar mão</button>
+      </div>
+    </div>
+
+    <div class="dv-grid">
+      <div style="min-width:0;display:flex;flex-direction:column;gap:16px">
+        ${cur ? `<div>
+          <div class="dv-stage"><img src="${esc(S.urls.get(cur.path) || "")}" alt="Print ${showIdx + 1}" data-stage>
+            <div class="cap">Print ${showIdx + 1} de ${imgs.length}${showIdx === myIdx ? " · desta dúvida" : ""}${cur.caption ? " — " + esc(cur.caption) : ""}</div></div>
+          ${imgs.length > 1 ? `<div class="dv-strip">${imgs.map((im, k) => `<button type="button" data-show="${k}" aria-current="${k === showIdx}" class="${k === myIdx ? "this" : ""}" title="${esc(im.caption || "")}"><img src="${esc(S.urls.get(im.path) || "")}" alt="Print ${k + 1}"><span>${k + 1}${im.caption ? " · " + esc(im.caption) : ""}</span></button>`).join("")}</div>` : ""}
+        </div>` : `<p class="empty">Esta dúvida não tem print.</p>`}
+        ${h.situation ? `<div class="card"><h2>Resumo da mão</h2><p class="dv-text">${esc(h.situation)}</p></div>` : ""}
+
+        <div class="card">
+          <div class="card-h"><h2>Discussão</h2><span class="muted" style="font-size:.8rem">${cms.length ? cms.length + (cms.length === 1 ? " comentário" : " comentários") : ""}</span></div>
+          <div class="thread">
+            ${cms.length ? cms.map(c => `
+              <div class="cmt ${c.pinned ? "pinned" : ""}" data-cm="${c.id}">
+                <div class="cmt-h">${c.pinned ? `<span class="pin-lbl">📌 Conclusão</span>` : ""}<span>${fmtWhen(c.created_at)}</span><span class="spacer"></span>
+                  <button type="button" data-cm-act="pin">${c.pinned ? "Desafixar" : "Fixar como conclusão"}</button>
+                  <button type="button" data-cm-act="del">Excluir</button></div>
+                ${c.body ? `<div class="cmt-body">${esc(c.body)}</div>` : ""}
+                ${c.images?.length ? `<div class="cmt-imgs">${c.images.map(p => `<img src="${esc(S.urls.get(p) || "")}" alt="Print do comentário" data-zoom-cm>`).join("")}</div>` : ""}
+              </div>`).join("") : `<p class="muted" style="margin:0;font-size:.88rem">Use este espaço para ir resolvendo a dúvida: anotações, o que o solver mostrou, a resposta do coach, prints de range. Quando chegar numa resposta, fixe como conclusão e marque como resolvida.</p>`}
+          </div>
+          <div class="composer" id="cm-box">
+            <textarea id="cm-text" placeholder="Escreva um comentário. Cole prints com Ctrl+V ou arraste para cá.">${esc(CM.text)}</textarea>
+            ${CM.files.length ? `<div class="pend">${CM.files.map((f, k) => `<div><img src="${f.url}" alt=""><button type="button" data-cm-rm="${k}" aria-label="Remover print">✕</button></div>`).join("")}</div>` : ""}
+            <div class="row">
+              <label class="btn ghost sm" style="cursor:pointer">📎 Anexar print<input type="file" id="cm-file" accept="image/*" multiple hidden></label>
+              <button class="btn primary sm" type="button" id="cm-send">Enviar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dv-side">
+        ${(d.conclusion || pins.length) ? `<div class="resolved-box"><h3>Conclusão</h3>
+          ${d.conclusion ? `<p class="dv-text">${esc(d.conclusion)}</p>` : ""}
+          ${pins.map(c => `${c.body ? `<p class="dv-text">${esc(c.body)}</p>` : ""}${c.images?.length ? `<div class="cmt-imgs">${c.images.map(p => `<img src="${esc(S.urls.get(p) || "")}" alt="" data-zoom-cm>`).join("")}</div>` : ""}`).join("")}
+        </div>` : ""}
+        ${d.plantao && d.plantao_answer ? `<div class="card"><h2>Resposta do plantão</h2><p class="dv-text">${esc(d.plantao_answer)}</p></div>` : ""}
+        <div class="card">
+          <h2>A mão</h2>
+          <dl class="dv-facts" style="margin:0">
+            ${fact("Cartas", esc(h.hero_cards || ""))}
+            ${fact("Posição", esc(h.position || ""))}
+            ${fact("Stack inicial", h.stack_bb != null ? esc(h.stack_bb) + " bb" : "")}
+            ${fact("Data", h.played_on ? shortDate(h.played_on) : "")}
+            ${fact("Sala", esc(h.site || ""))}
+            ${fact("Board", esc(h.board || ""))}
+            ${fact("Torneio", esc(h.tournament || ""), true)}
+            ${d.tags?.length ? `<div class="wide"><dt>Spots</dt><dd><div class="tags" style="margin-top:4px">${d.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</div></dd></div>` : ""}
+            ${leak ? fact("Leak", esc(leak.title), true) : ""}
+          </dl>
+        </div>
+        ${decs.length > 1 ? `<div class="card"><h2>Outras dúvidas desta mão</h2>
+          <div class="stack">${decs.map((x, k) => x.id === d.id ? "" : `<button type="button" class="btn ghost" style="justify-content:flex-start;white-space:normal;text-align:left" data-go="${x.id}">${streetTag(x.street)} ${esc(x.question || "Dúvida " + (k + 1))}${x.status === "revisada" ? ` <span class="st revisada">resolvida</span>` : ""}</button>`).join("")}</div></div>` : ""}
+      </div>
+    </div>`;
+}
+
+async function addCommentFiles(files) {
+  for (const f of [...files].filter(f => f && f.type && f.type.startsWith("image/"))) {
+    const blob = await compress(f);
+    CM.files.push({ blob, url: URL.createObjectURL(blob) });
+  }
+  renderDoubt();
+  $("#cm-text")?.focus();
+}
+async function setDecision(d, patch, what) {
+  const r = await q(sb.from("decisions").update(patch).eq("id", d.id).select().single(), what);
+  S.decisions = S.decisions.map(x => x.id === r.id ? r : x);
+  return r;
+}
+
+$("#v-duvida").addEventListener("input", e => { if (e.target.id === "cm-text") CM.text = e.target.value; });
+$("#v-duvida").addEventListener("change", e => { if (e.target.id === "cm-file") { const f = [...e.target.files]; e.target.value = ""; addCommentFiles(f); } });
+$("#v-duvida").addEventListener("dragover", e => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); $("#cm-box")?.classList.add("over"); } });
+$("#v-duvida").addEventListener("dragleave", e => { if (!e.currentTarget.contains(e.relatedTarget)) $("#cm-box")?.classList.remove("over"); });
+$("#v-duvida").addEventListener("keydown", e => { if (e.target.id === "cm-text" && e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $("#cm-send")?.click(); } });
+$("#v-duvida").addEventListener("click", async e => {
+  const t = e.target;
+  const d = S.decisions.find(x => x.id === currentDec); if (!d) return;
+  const go = t.closest("[data-go]"); if (go) { if (go.dataset.go) { CM.text = ""; location.hash = "duvida-" + go.dataset.go; } return; }
+  const sh = t.closest("[data-show]"); if (sh) { showIdx = +sh.dataset.show; renderDoubt(); return; }
+  if (t.closest("[data-stage]")) { openShow(d, showIdx); return; }
+  const zc = t.closest("[data-zoom-cm]"); if (zc) { $("#viewer-img").src = zc.src; $("#dlg-view").showModal(); return; }
+  const rmf = t.closest("[data-cm-rm]"); if (rmf) { const [f] = CM.files.splice(+rmf.dataset.cmRm, 1); URL.revokeObjectURL(f.url); renderDoubt(); return; }
+
+  const act = t.closest("[data-act]")?.dataset.act;
+  try {
+    if (act === "resolve" || act === "reopen" || act === "resolve-next") {
+      const nextOpen = doubtNav(d).nextOpen;
+      await setDecision(d, { status: act === "reopen" ? "rever" : "revisada" }, "atualizar a dúvida");
+      toast(act === "reopen" ? "Dúvida reaberta" : "Dúvida resolvida");
+      if (act === "resolve-next" && nextOpen) { CM.text = ""; location.hash = "duvida-" + nextOpen; } else renderAll();
+      return;
+    }
+    if (act === "plantao") { await setDecision(d, { plantao: !d.plantao }, "atualizar o plantão"); renderAll(); return; }
+    if (act === "show") { openShow(d, showIdx); return; }
+    if (act === "edit") { openHand(d.hand_id, [], { focusDec: d.id }); return; }
+  } catch { return; }
+
+  if (t.id === "cm-send") {
+    const body = ($("#cm-text").value || "").trim();
+    if (!body && !CM.files.length) { $("#cm-text").focus(); return; }
+    t.disabled = true; t.textContent = "Enviando…";
+    try {
+      const paths = [];
+      for (const f of CM.files) {
+        const path = `${S.user.id}/comments/${d.id}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.jpg`;
+        const { error } = await sb.storage.from("hands").upload(path, f.blob, { contentType: f.blob.type || "image/jpeg" });
+        if (error) { fail(error, "enviar o print"); continue; }
+        S.urls.set(path, f.url); paths.push(path);
+      }
+      const c = await q(sb.from("comments").insert({ decision_id: d.id, body: body || null, images: paths }).select().single(), "enviar o comentário");
+      S.comments.push(c);
+      CM.text = ""; CM.files = [];
+      renderAll();
+      setTimeout(() => $("#cm-text")?.focus(), 30);
+    } catch { t.disabled = false; t.textContent = "Enviar"; }
+    return;
+  }
+
+  const ca = t.closest("[data-cm-act]");
+  if (ca) {
+    const c = S.comments.find(x => x.id === ca.closest("[data-cm]").dataset.cm); if (!c) return;
+    try {
+      if (ca.dataset.cmAct === "pin") {
+        const r = await q(sb.from("comments").update({ pinned: !c.pinned }).eq("id", c.id).select().single(), "fixar o comentário");
+        S.comments = S.comments.map(x => x.id === r.id ? r : x); renderAll();
+      } else if (ca.dataset.cmAct === "del") {
+        if (!ca.hasAttribute("data-armed")) { ca.setAttribute("data-armed", ""); ca.textContent = "Confirmar"; return; }
+        if (c.images?.length) await sb.storage.from("hands").remove(c.images);
+        await q(sb.from("comments").delete().eq("id", c.id), "excluir o comentário");
+        S.comments = S.comments.filter(x => x.id !== c.id); renderAll();
+      }
+    } catch { }
+  }
+});
+
+/* ---- modo apresentar (para mostrar a mão ao coach) ---- */
+const SH = { imgs: [], i: 0, d: null };
+function openShow(d, start = 0) {
+  SH.d = d; SH.imgs = imagesOf(d.hand_id); SH.i = Math.max(0, Math.min(start || 0, SH.imgs.length - 1));
+  if (!SH.imgs.length) return;
+  renderShow(); $("#dlg-show").showModal();
+}
+function renderShow() {
+  const im = SH.imgs[SH.i]; if (!im) return;
+  const decHere = decisionsOf(SH.d.hand_id).find(x => x.image_id === im.id);
+  $("#show-img").src = S.urls.get(im.path) || "";
+  $("#show-pos").textContent = `${SH.i + 1} / ${SH.imgs.length}`;
+  $("#show-cap").textContent = im.caption || "";
+  $("#show-q").textContent = decHere?.question ? "❓ " + decHere.question : "";
+  $("#show-q").hidden = !decHere?.question;
+  $("#show-prev").disabled = SH.i === 0;
+  $("#show-next").disabled = SH.i >= SH.imgs.length - 1;
+}
+$("#show-prev").addEventListener("click", () => { if (SH.i > 0) { SH.i--; renderShow(); } });
+$("#show-next").addEventListener("click", () => { if (SH.i < SH.imgs.length - 1) { SH.i++; renderShow(); } });
+document.addEventListener("keydown", e => {
+  if (!$("#dlg-show").open) return;
+  if (e.key === "ArrowLeft") $("#show-prev").click();
+  if (e.key === "ArrowRight") $("#show-next").click();
+});
 
 /* ================= delete confirm ================= */
 function armDelete(btn, label, onConfirm) {
@@ -442,7 +687,7 @@ function renderDecs() {
         <div><div class="lbl">Spots</div><div class="tag-pick">${tagBtns}</div></div>
         <label>Conclusão / o que o solver diz<textarea data-f="conclusion" rows="2" placeholder="Ex.: HRC prefere fold; AQ está no fundo do range de call">${esc(d.conclusion)}</textarea></label>
         <div class="drow">
-          <label>Status<select data-f="status"><option value="rever" ${d.status !== "revisada" ? "selected" : ""}>Para rever</option><option value="revisada" ${d.status === "revisada" ? "selected" : ""}>Revisada</option></select></label>
+          <label>Status<select data-f="status"><option value="rever" ${d.status !== "revisada" ? "selected" : ""}>Aberta</option><option value="revisada" ${d.status === "revisada" ? "selected" : ""}>Resolvida</option></select></label>
           <label>Leak<select data-f="leak_id">${leakOpts(d.leak_id)}</select></label>
           <label class="check"><input type="checkbox" data-f="plantao" ${d.plantao ? "checked" : ""}> Plantão</label>
         </div>
@@ -667,8 +912,11 @@ async function deleteHand() {
     await q(sb.from("hands").delete().eq("id", h.id), "excluir a mão");
     S.hands = S.hands.filter(x => x.id !== h.id);
     S.images = S.images.filter(i => i.hand_id !== h.id);
+    const goneDecs = new Set(S.decisions.filter(d => d.hand_id === h.id).map(d => d.id));
     S.decisions = S.decisions.filter(d => d.hand_id !== h.id);
-    dlgHand.close(); toast("Mão excluída"); renderAll();
+    S.comments = S.comments.filter(c => !goneDecs.has(c.decision_id));
+    dlgHand.close(); toast("Mão excluída");
+    if (view === "duvida") location.hash = backTo; else renderAll();
   } catch { /* já avisado */ }
 }
 
@@ -679,6 +927,7 @@ document.addEventListener("paste", e => {
   if (!files.length) return;
   e.preventDefault();
   if (dlgHand.open) { addFiles(files); toast("Print adicionado"); }
+  else if (view === "duvida" && $("#cm-text")) addCommentFiles(files);
   else openHand(null, files);
 });
 let dragDepth = 0;
@@ -691,7 +940,9 @@ document.addEventListener("drop", e => {
   e.preventDefault();
   const files = [...e.dataTransfer.files].filter(f => f.type.startsWith("image/"));
   if (!files.length) return;
-  if (dlgHand.open) addFiles(files); else openHand(null, files);
+  if (dlgHand.open) addFiles(files);
+  else if (view === "duvida" && $("#cm-text")) addCommentFiles(files);
+  else openHand(null, files);
 });
 
 /* ================= agenda ================= */
@@ -727,7 +978,12 @@ document.addEventListener("click", async e => {
   if (t.closest("dialog")) return;
   const ne = t.closest("[data-new-event]"); if (ne) { openEvent(null, ne.dataset.newEvent === "today" ? today() : ne.dataset.newEvent); return; }
   const ev = t.closest("[data-ev]"); if (ev) { openEvent(ev.dataset.ev); return; }
-  const hd = t.closest("[data-hand]"); if (hd) { openHand(hd.dataset.hand, [], { focusDec: hd.dataset.dec || null }); return; }
+  const hd = t.closest("[data-hand]");
+  if (hd) {
+    if (hd.dataset.dec) { backTo = view === "plantao" ? "plantao" : "maos"; location.hash = "duvida-" + hd.dataset.dec; }
+    else openHand(hd.dataset.hand);
+    return;
+  }
 
   const tk = t.closest("[data-task]");
   if (tk) {
