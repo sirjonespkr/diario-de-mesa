@@ -4,7 +4,7 @@
 
 const SUPABASE_URL = "https://setfwqbgnrdqjhdyyrwm.supabase.co";
 const SUPABASE_KEY = "sb_publishable_pgZwjSF38yBhEQo1B0AmRQ_JSn2O374";
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5";
+const MODEL = process.env.ANTHROPIC_MODEL || "claude-haiku-5-5";
 
 const TOOL = {
   name: "registrar_mao",
