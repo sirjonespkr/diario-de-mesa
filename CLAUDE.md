@@ -9,7 +9,7 @@ Site pessoal (um único usuário, jogador profissional de poker, MTT) para organ
 - Hospedagem: Vercel, com deploy automático a cada push na `main`. URL: https://diario-de-mesa-gamma.vercel.app
 - Função serverless `api/analyze.js` (CommonJS, sem dependências): lê prints com a API da Anthropic (modelo padrão `claude-sonnet-5-5`, trocável pela env `ANTHROPIC_MODEL`). Recebe os prints com as legendas e devolve os dados da mão e uma lista de dúvidas (uma por print). Exige a env `ANTHROPIC_API_KEY` e um token de login válido do Supabase.
 
-- Função `api/hrc.js`: leituras sob demanda para o HRC. `mode: payouts` lê as faixas de premiação do print do lobby (Haiku); `mode: table` lê a mesa (Sonnet). O navegador (`js/hrc.js`, código puro) monta o .json no formato SharkScope (que o HRC importa) e um histórico de mão no formato PokerStars (para colar no HRC). Os resultados ficam salvos em `hands.hrc_payouts` e `hands.hrc_table`.
+- Função `api/hrc.js`: leituras sob demanda para o HRC. `mode: payouts` lê as faixas de premiação do print do lobby (Haiku); `mode: table` lê a mesa (Sonnet). O navegador (`js/hrc.js`, código puro) monta o .json no formato SharkScope (que o HRC importa) e um histórico de mão no formato PokerStars (para colar no HRC). Os resultados ficam salvos em `hands.hrc_payouts` e `hands.hrc_table`. Bounty PKO: as salas mostram metade (parte paga na eliminação) e o histórico PokerStars leva o total, então o valor lido é dobrado, exceto nas salas de `PKO_SHOWS_FULL_BOUNTY` em `js/config.js` (hoje só CoinPoker).
 
 ## Modelo de dados
 - `hands`: dados da mão (sala, torneio, cartas, posição, stack inicial, board final, `situation` = resumo/história).

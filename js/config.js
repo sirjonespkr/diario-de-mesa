@@ -13,3 +13,8 @@ export const DEFAULT_TAGS = [
 
 // Seus nicks nas salas: ajudam a IA a saber quem é você na mesa.
 export const HERO_NICKS = ["sluizg"];
+
+// Bounty progressivo (PKO): a maioria das salas mostra na mesa só a parte que você ganha ao eliminar (metade).
+// O histórico do PokerStars espera o bounty TOTAL, então o site dobra o valor lido.
+// Salas que já mostram o bounty inteiro na mesa (não dobra):
+export const PKO_SHOWS_FULL_BOUNTY = ["CoinPoker"];

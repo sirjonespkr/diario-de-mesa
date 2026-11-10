@@ -67,7 +67,7 @@ export function buildPayoutsJson(p, { handKey = "", site } = {}) {
 /* ---------- mesa → histórico de mão no formato PokerStars (o HRC lê colando) ---------- */
 const clean = s => String(s || "Jogador").replace(/[:()\[\]\r\n]/g, " ").replace(/\s+/g, " ").trim() || "Jogador";
 
-export function buildPokerStarsHH(t, { handKey = "", date = new Date(), tournament = "", buyinOverride } = {}) {
+export function buildPokerStarsHH(t, { handKey = "", date = new Date(), tournament = "", buyinOverride, site = "", fullBountySites = [] } = {}) {
   const warnings = [];
   const players = (t?.players || []).filter(p => p && Number.isFinite(+p.stack_bb));
   if (players.length < 2) throw new Error("a IA não encontrou os jogadores da mesa");
@@ -103,6 +103,9 @@ export function buildPokerStarsHH(t, { handKey = "", date = new Date(), tourname
   }
   if (!total) warnings.push("buy-in não apareceu: usei um valor genérico no cabeçalho");
   if (isBounty && players.some(p => p.bounty == null)) warnings.push("bounty de algum jogador não apareceu no print");
+  // PKO: a mesa mostra metade (o que se ganha ao eliminar), exceto nas salas que mostram o total
+  const showsFull = fullBountySites.some(x => x.toLowerCase() === String(site || "").toLowerCase());
+  const bountyMult = t.bounty_type === "pko" && !showsFull ? 2 : 1;
 
   const handNo = stableDigits("h" + handKey, 12);
   const tourNo = stableDigits("t" + handKey + tournament, 10);
@@ -117,7 +120,7 @@ export function buildPokerStarsHH(t, { handKey = "", date = new Date(), tourname
   L.push(`PokerStars Hand #${handNo}: Tournament #${tourNo}, ${buyinStr} USD Hold'em No Limit - Level I (${sb}/${bb}) - ${stamp} ET`);
   L.push(`Table '${tourNo} 1' ${maxSeats}-max Seat #${btn + 1} is the button`);
   players.forEach((p, i) => {
-    const b = isBounty && p.bounty != null ? `, $${money(+p.bounty)} bounty` : "";
+    const b = isBounty && p.bounty != null ? `, $${money(+p.bounty * bountyMult)} bounty` : "";
     L.push(`Seat ${i + 1}: ${p._name} (${chips[i]} in chips${b})`);
   });
   if (ante) players.forEach(p => L.push(`${p._name}: posts the ante ${ante}`));
@@ -139,5 +142,5 @@ export function buildPokerStarsHH(t, { handKey = "", date = new Date(), tourname
     else if (i === sbI) L.push(`Seat ${i + 1}: ${p._name} (small blind) folded before Flop`);
     else L.push(`Seat ${i + 1}: ${p._name}${i === btn ? " (button)" : ""} folded before Flop (didn't bet)`);
   });
-  return { text: L.join("\n") + "\n", warnings, summary: { players: n, sb, bb, ante, chips } };
+  return { text: L.join("\n") + "\n", warnings, summary: { players: n, sb, bb, ante, chips, bountyMult } };
 }

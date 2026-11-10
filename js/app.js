@@ -1,4 +1,4 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY, SITES, POSITIONS, DEFAULT_TAGS, HERO_NICKS } from "./config.js";
+import { SUPABASE_URL, SUPABASE_ANON_KEY, SITES, POSITIONS, DEFAULT_TAGS, HERO_NICKS, PKO_SHOWS_FULL_BOUNTY } from "./config.js";
 import { buildPayoutsJson, buildPokerStarsHH, checkPayouts } from "./hrc.js";
 
 /* ================= helpers ================= */
@@ -550,7 +550,7 @@ function hrcPanel(h) {
   const m = HRC.msg[h.id] || {};
   const busy = HRC.busy;
   let hh = null;
-  if (t) { try { hh = buildPokerStarsHH(t, { handKey: h.id, date: h.played_on ? new Date(h.played_on + "T12:00:00") : new Date(), tournament: h.tournament || "", buyinOverride: p?.buyin_total }); } catch (e) { hh = { error: e.message }; } }
+  if (t) { try { hh = buildPokerStarsHH(t, { handKey: h.id, date: h.played_on ? new Date(h.played_on + "T12:00:00") : new Date(), tournament: h.tournament || "", buyinOverride: p?.buyin_total, site: h.site || p?.site || "", fullBountySites: PKO_SHOWS_FULL_BOUNTY }); } catch (e) { hh = { error: e.message }; } }
   const warn = list => list?.length ? `<ul class="hrc-warn">${list.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : "";
   return `<div class="card hrc">
     <div class="card-h"><h2>HRC</h2><span class="muted" style="font-size:.75rem">só usa IA quando você clica</span></div>
@@ -574,7 +574,7 @@ function hrcPanel(h) {
       ${t ? `<button class="linkish" type="button" data-hrc="hh-redo" ${busy ? "disabled" : ""}>ler de novo</button>` : ""}
     </div>
     ${hh?.error ? `<p class="hint err">${esc(hh.error)}</p>` : ""}
-    ${hh?.text ? `${warn(hh.warnings)}<details><summary>Ver o histórico gerado (${hh.summary.players} jogadores · ${hh.summary.sb}/${hh.summary.bb} · ante ${hh.summary.ante})</summary><textarea class="hh-text" id="hh-text" readonly rows="10">${esc(hh.text)}</textarea></details>` : ""}
+    ${hh?.text ? `${warn(hh.warnings)}<details><summary>Ver o histórico gerado (${hh.summary.players} jogadores · ${hh.summary.sb}/${hh.summary.bb} · ante ${hh.summary.ante}${hh.summary.bountyMult === 2 ? " · bounty da mesa ×2 = total" : ""})</summary><textarea class="hh-text" id="hh-text" readonly rows="10">${esc(hh.text)}</textarea></details>` : ""}
     ${m.hh ? `<p class="hint ${m.hhOk ? "" : "err"}">${esc(m.hh)}</p>` : ""}
     <p class="hint">No HRC: abra o .json na configuração da mão e cole o histórico (formato PokerStars). Stacks, posições, blinds, ante e bounties entram juntos.</p>
   </div>`;
@@ -657,7 +657,7 @@ async function hrcAction(kind, d) {
         if (!t.players?.length) throw new Error("não achei os jogadores no print da mesa");
         h = await saveHand(h, { hrc_table: t }, "salvar a leitura da mesa");
       }
-      const hh = buildPokerStarsHH(h.hrc_table, { handKey: h.id, date: h.played_on ? new Date(h.played_on + "T12:00:00") : new Date(), tournament: h.tournament || "", buyinOverride: h.hrc_payouts?.buyin_total });
+      const hh = buildPokerStarsHH(h.hrc_table, { handKey: h.id, date: h.played_on ? new Date(h.played_on + "T12:00:00") : new Date(), tournament: h.tournament || "", buyinOverride: h.hrc_payouts?.buyin_total, site: h.site || h.hrc_payouts?.site || "", fullBountySites: PKO_SHOWS_FULL_BOUNTY });
       try { await navigator.clipboard.writeText(hh.text); m.hh = "Copiado! Cole no HRC (importar histórico da área de transferência)."; m.hhOk = true; toast("Mão copiada para o HRC"); }
       catch { m.hh = "O navegador não deixou copiar sozinho: abra “Ver o histórico gerado”, selecione tudo (Ctrl+A) e copie (Ctrl+C)."; }
     } catch (e) { m.hh = "Não deu para montar a mão: " + (e.message || e); }
