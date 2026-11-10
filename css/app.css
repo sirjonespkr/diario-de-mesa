@@ -301,6 +301,20 @@ dialog.show[open]{display:flex}
 .show-nav:disabled{opacity:.2;cursor:default}
 .show-q{padding:12px 16px;border-top:1px solid var(--line);font-family:var(--f-display);font-size:1.1rem;font-weight:600}
 
+/* HRC */
+.hrc .hrc-lobby{display:grid;grid-template-columns:120px 1fr;gap:12px;align-items:center}
+.hrc .hrc-lobby img{width:120px;aspect-ratio:4/3;object-fit:cover;border-radius:8px;border:1px solid var(--line-2);cursor:zoom-in;display:block}
+.hrc .hrc-nolobby{width:120px;aspect-ratio:4/3;border:1px dashed var(--line-2);border-radius:8px;display:grid;place-items:center;text-align:center;font-size:.72rem;color:var(--muted);padding:6px}
+.hrc-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hrc-row .btn{flex:1;justify-content:flex-start}
+.linkish{border:0;background:none;color:var(--muted);text-decoration:underline;cursor:pointer;font-size:.78rem;padding:0}
+.linkish:hover{color:var(--ink)}
+.hint{font-size:.78rem;color:var(--muted);margin:0}
+.hint.err{color:var(--gold)}
+.hrc-warn{margin:0;padding-left:18px;font-size:.78rem;color:var(--gold)}
+.hrc details summary{cursor:pointer;font-size:.8rem;color:var(--muted)}
+.hh-text{font-family:var(--f-mono);font-size:.72rem;margin-top:8px;white-space:pre;overflow:auto}
+
 /* IA */
 .ai-bar{display:flex;align-items:center;gap:10px;font-size:.84rem;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px 8px 12px}
 .ai-bar #h-ai-msg{flex:1;min-width:0}

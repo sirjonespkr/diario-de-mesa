@@ -1,4 +1,5 @@
 import { SUPABASE_URL, SUPABASE_ANON_KEY, SITES, POSITIONS, DEFAULT_TAGS, HERO_NICKS } from "./config.js";
+import { buildPayoutsJson, buildPokerStarsHH, checkPayouts } from "./hrc.js";
 
 /* ================= helpers ================= */
 const $ = s => document.querySelector(s);
@@ -71,7 +72,9 @@ async function signImages(paths) {
     data.forEach(d => { if (d.signedUrl) S.urls.set(d.path, d.signedUrl); });
   }
 }
-const imagesOf = id => S.images.filter(i => i.hand_id === id).sort((a, b) => a.sort - b.sort);
+const imagesOf = id => S.images.filter(i => i.hand_id === id && i.kind !== "lobby").sort((a, b) => a.sort - b.sort);
+const lobbyOf = id => S.images.filter(i => i.hand_id === id && i.kind === "lobby").sort((a, b) => b.created_at.localeCompare(a.created_at))[0] || null;
+const isLobbyCaption = c => /^\s*lobby/i.test(c || "");
 const decisionsOf = id => S.decisions.filter(d => d.hand_id === id).sort((a, b) => a.sort - b.sort);
 const commentsOf = id => S.comments.filter(c => c.decision_id === id).sort((a, b) => a.created_at.localeCompare(b.created_at));
 // uma dúvida do plantão conta como respondida se tem resposta, comentário fixado ou está resolvida
@@ -429,6 +432,7 @@ function renderDoubt() {
           ${pins.map(c => `${c.body ? `<p class="dv-text">${esc(c.body)}</p>` : ""}${c.images?.length ? `<div class="cmt-imgs">${c.images.map(p => `<img src="${esc(S.urls.get(p) || "")}" alt="" data-zoom-cm>`).join("")}</div>` : ""}`).join("")}
         </div>` : ""}
         ${d.plantao && d.plantao_answer ? `<div class="card"><h2>Resposta do plantão</h2><p class="dv-text">${esc(d.plantao_answer)}</p></div>` : ""}
+        ${hrcPanel(h)}
         <div class="card">
           <h2>A mão</h2>
           <dl class="dv-facts" style="margin:0">
@@ -464,7 +468,10 @@ async function setDecision(d, patch, what) {
 }
 
 $("#v-duvida").addEventListener("input", e => { if (e.target.id === "cm-text") CM.text = e.target.value; });
-$("#v-duvida").addEventListener("change", e => { if (e.target.id === "cm-file") { const f = [...e.target.files]; e.target.value = ""; addCommentFiles(f); } });
+$("#v-duvida").addEventListener("change", e => {
+  if (e.target.id === "cm-file") { const f = [...e.target.files]; e.target.value = ""; addCommentFiles(f); }
+  if (e.target.id === "lobby-file") { const f = e.target.files[0]; e.target.value = ""; if (f) uploadLobby(f); }
+});
 $("#v-duvida").addEventListener("dragover", e => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); $("#cm-box")?.classList.add("over"); } });
 $("#v-duvida").addEventListener("dragleave", e => { if (!e.currentTarget.contains(e.relatedTarget)) $("#cm-box")?.classList.remove("over"); });
 $("#v-duvida").addEventListener("keydown", e => { if (e.target.id === "cm-text" && e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $("#cm-send")?.click(); } });
@@ -477,6 +484,8 @@ $("#v-duvida").addEventListener("click", async e => {
   const zc = t.closest("[data-zoom-cm]"); if (zc) { $("#viewer-img").src = zc.src; $("#dlg-view").showModal(); return; }
   const rmf = t.closest("[data-cm-rm]"); if (rmf) { const [f] = CM.files.splice(+rmf.dataset.cmRm, 1); URL.revokeObjectURL(f.url); renderDoubt(); return; }
 
+  const hb = t.closest("[data-hrc]");
+  if (hb) { hrcAction(hb.dataset.hrc, d); return; }
   const act = t.closest("[data-act]")?.dataset.act;
   try {
     if (act === "toggle") {
@@ -530,6 +539,131 @@ $("#v-duvida").addEventListener("click", async e => {
     } catch { }
   }
 });
+
+/* ---- HRC: .json do torneio e mão no formato PokerStars ---- */
+const HRC = { pasteLobby: false, busy: "", msg: {} };
+function hrcPanel(h) {
+  if (!h?.id) return "";
+  const lobby = lobbyOf(h.id);
+  const p = h.hrc_payouts, t = h.hrc_table;
+  const chk = p ? checkPayouts(p) : null;
+  const m = HRC.msg[h.id] || {};
+  const busy = HRC.busy;
+  let hh = null;
+  if (t) { try { hh = buildPokerStarsHH(t, { handKey: h.id, date: h.played_on ? new Date(h.played_on + "T12:00:00") : new Date(), tournament: h.tournament || "", buyinOverride: p?.buyin_total }); } catch (e) { hh = { error: e.message }; } }
+  const warn = list => list?.length ? `<ul class="hrc-warn">${list.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : "";
+  return `<div class="card hrc">
+    <div class="card-h"><h2>HRC</h2><span class="muted" style="font-size:.75rem">só usa IA quando você clica</span></div>
+    <div class="hrc-lobby">
+      ${lobby ? `<img src="${esc(S.urls.get(lobby.path) || "")}" alt="Print do lobby" data-zoom-cm>` : `<div class="hrc-nolobby">Sem print do lobby</div>`}
+      <div class="stack" style="gap:6px">
+        <label class="btn sm" style="cursor:pointer">📎 ${lobby ? "Trocar" : "Anexar"} lobby<input type="file" id="lobby-file" accept="image/*" hidden></label>
+        <button class="btn sm ${HRC.pasteLobby ? "primary" : ""}" type="button" data-hrc="paste-lobby">${HRC.pasteLobby ? "Agora aperte Ctrl+V…" : "Colar lobby (Ctrl+V)"}</button>
+      </div>
+    </div>
+
+    <div class="hrc-row">
+      <button class="btn" type="button" data-hrc="json" ${lobby && !busy ? "" : "disabled"}>${busy === "json" ? "Lendo o lobby…" : "⬇ Baixar .json do torneio"}</button>
+      ${p ? `<button class="linkish" type="button" data-hrc="json-redo" ${busy ? "disabled" : ""}>ler de novo</button>` : ""}
+    </div>
+    ${p ? `<p class="hint">${chk.lastPaid} posições pagas${p.places_paid ? ` (lobby: ${p.places_paid})` : ""}${p.players_left ? ` · ${p.players_left} restantes` : ""}${p.small_blind ? ` · nível ${p.small_blind}/${p.big_blind}${p.ante ? ` (${p.ante})` : ""}` : ""}</p>${warn(chk.problems)}` : ""}
+    ${m.json ? `<p class="hint err">${esc(m.json)}</p>` : ""}
+
+    <div class="hrc-row">
+      <button class="btn" type="button" data-hrc="hh" ${imagesOf(h.id).length && !busy ? "" : "disabled"}>${busy === "hh" ? "Lendo a mesa…" : "📋 Copiar mão para o HRC"}</button>
+      ${t ? `<button class="linkish" type="button" data-hrc="hh-redo" ${busy ? "disabled" : ""}>ler de novo</button>` : ""}
+    </div>
+    ${hh?.error ? `<p class="hint err">${esc(hh.error)}</p>` : ""}
+    ${hh?.text ? `${warn(hh.warnings)}<details><summary>Ver o histórico gerado (${hh.summary.players} jogadores · ${hh.summary.sb}/${hh.summary.bb} · ante ${hh.summary.ante})</summary><textarea class="hh-text" id="hh-text" readonly rows="10">${esc(hh.text)}</textarea></details>` : ""}
+    ${m.hh ? `<p class="hint ${m.hhOk ? "" : "err"}">${esc(m.hh)}</p>` : ""}
+    <p class="hint">No HRC: abra o .json na configuração da mão e cole o histórico (formato PokerStars). Stacks, posições, blinds, ante e bounties entram juntos.</p>
+  </div>`;
+}
+
+async function callHRC(body) {
+  const { data: { session } } = await sb.auth.getSession();
+  const r = await fetch("/api/hrc", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + (session?.access_token || "") }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 503) throw new Error("falta a chave da IA na Vercel");
+  if (r.status === 404) throw new Error("a função do HRC ainda não foi publicada");
+  if (!r.ok) throw new Error(j.detail || j.error || "HTTP " + r.status);
+  return j;
+}
+async function imgB64(img, max = 1800) {
+  const url = S.urls.get(img.path);
+  const blob = await (await fetch(url)).blob();
+  return toBase64(await compress(blob, max, 0.9));
+}
+async function saveHand(h, patch, what) {
+  const r = await q(sb.from("hands").update(patch).eq("id", h.id).select().single(), what);
+  S.hands = S.hands.map(x => x.id === r.id ? r : x);
+  return r;
+}
+async function uploadLobby(file) {
+  const d = S.decisions.find(x => x.id === currentDec); if (!d || !file) return;
+  const h = S.hands.find(x => x.id === d.hand_id); if (!h) return;
+  try {
+    const blob = await compress(file, 2400, 0.92); // lobby tem texto pequeno: guarda maior
+    const path = `${S.user.id}/${h.id}/lobby-${Date.now()}.jpg`;
+    const { error } = await sb.storage.from("hands").upload(path, blob, { contentType: "image/jpeg" });
+    if (error) { fail(error, "enviar o lobby"); return; }
+    const img = await q(sb.from("hand_images").insert({ hand_id: h.id, path, sort: 999, caption: "lobby", kind: "lobby" }).select().single(), "registrar o lobby");
+    S.images.push(img); S.urls.set(path, URL.createObjectURL(blob));
+    if (h.hrc_payouts) await saveHand(h, { hrc_payouts: null }, "limpar a premiação antiga");
+    toast("Lobby anexado"); renderDoubt();
+  } catch { }
+}
+function downloadJson(obj, name) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+async function hrcAction(kind, d) {
+  let h = S.hands.find(x => x.id === d.hand_id); if (!h) return;
+  HRC.msg[h.id] = HRC.msg[h.id] || {};
+  const m = HRC.msg[h.id];
+  if (kind === "paste-lobby") { HRC.pasteLobby = !HRC.pasteLobby; renderDoubt(); return; }
+
+  if (kind === "json" || kind === "json-redo") {
+    const lobby = lobbyOf(h.id); if (!lobby) return;
+    m.json = "";
+    try {
+      if (!h.hrc_payouts || kind === "json-redo") {
+        HRC.busy = "json"; renderDoubt();
+        const p = await callHRC({ mode: "payouts", images: [await imgB64(lobby, 2400)] });
+        if (!p.payouts?.length) throw new Error("não achei a tabela de premiação no print do lobby");
+        h = await saveHand(h, { hrc_payouts: p }, "salvar a premiação");
+      }
+      const p = h.hrc_payouts;
+      const safe = String(p.tournament || h.tournament || "torneio").replace(/[^\w$ -]+/g, "").trim().replace(/\s+/g, "-").slice(0, 60) || "torneio";
+      downloadJson(buildPayoutsJson(p, { handKey: h.id, site: h.site }), `${safe}.json`);
+      toast(".json baixado");
+    } catch (e) { m.json = "Não deu para montar o .json: " + (e.message || e); }
+    HRC.busy = ""; renderDoubt(); return;
+  }
+
+  if (kind === "hh" || kind === "hh-redo") {
+    m.hh = ""; m.hhOk = false;
+    try {
+      if (!h.hrc_table || kind === "hh-redo") {
+        const first = imagesOf(h.id)[0]; if (!first) return;
+        const lobby = lobbyOf(h.id);
+        HRC.busy = "hh"; renderDoubt();
+        const images = [await imgB64(first)], labels = ["Print da mesa (início da mão)"];
+        if (lobby) { images.push(await imgB64(lobby, 2400)); labels.push("Print do lobby do torneio"); }
+        const t = await callHRC({ mode: "table", images, labels });
+        if (!t.players?.length) throw new Error("não achei os jogadores no print da mesa");
+        h = await saveHand(h, { hrc_table: t }, "salvar a leitura da mesa");
+      }
+      const hh = buildPokerStarsHH(h.hrc_table, { handKey: h.id, date: h.played_on ? new Date(h.played_on + "T12:00:00") : new Date(), tournament: h.tournament || "", buyinOverride: h.hrc_payouts?.buyin_total });
+      try { await navigator.clipboard.writeText(hh.text); m.hh = "Copiado! Cole no HRC (importar histórico da área de transferência)."; m.hhOk = true; toast("Mão copiada para o HRC"); }
+      catch { m.hh = "O navegador não deixou copiar sozinho: abra “Ver o histórico gerado”, selecione tudo (Ctrl+A) e copie (Ctrl+C)."; }
+    } catch (e) { m.hh = "Não deu para montar a mão: " + (e.message || e); }
+    HRC.busy = ""; renderDoubt(); return;
+  }
+}
 
 /* ---- modo apresentar (para mostrar a mão ao coach) ---- */
 const SH = { imgs: [], i: 0, d: null };
@@ -771,7 +905,7 @@ function inputsChanged() {
 async function runAI(manual) {
   clearTimeout(aiTimer);
   const seq = ++aiSeq;
-  const vis = visibleImgs();
+  const vis = visibleImgs().filter(i => !isLobbyCaption(i.caption));
   if (!vis.length) { if (manual) aiMsg("Adicione um print primeiro."); return; }
   H.aiRuns++;
   aiMsg(`Lendo ${vis.length} print${vis.length > 1 ? "s" : ""} com IA…`, "busy"); $("#h-ai-run").disabled = true;
@@ -880,7 +1014,7 @@ $("#f-hand").addEventListener("submit", async e => {
         const path = `${S.user.id}/${hand.id}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.jpg`;
         const { error } = await sb.storage.from("hands").upload(path, im.blob, { contentType: im.blob.type || "image/jpeg", upsert: false });
         if (error) { fail(error, "enviar um print"); continue; }
-        const saved = await q(sb.from("hand_images").insert({ hand_id: hand.id, path, sort: k, caption: im.caption.trim() || null }).select().single(), "registrar o print");
+        const saved = await q(sb.from("hand_images").insert({ hand_id: hand.id, path, sort: k, caption: im.caption.trim() || null, kind: isLobbyCaption(im.caption) ? "lobby" : "mesa" }).select().single(), "registrar o print");
         keyToId[im.key] = saved.id;
         S.urls.set(path, im.url); im.keepUrl = true; // usa a prévia local até recarregar
       }
@@ -935,6 +1069,7 @@ document.addEventListener("paste", e => {
   if (!files.length) return;
   e.preventDefault();
   if (dlgHand.open) { addFiles(files); toast("Print adicionado"); }
+  else if (view === "duvida" && HRC.pasteLobby) { HRC.pasteLobby = false; uploadLobby(files[0]); }
   else if (view === "duvida" && $("#cm-text")) addCommentFiles(files);
   else openHand(null, files);
 });
