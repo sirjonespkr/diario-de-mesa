@@ -60,6 +60,7 @@ Como ler as legendas (gírias comuns):
 
 Como ler a mesa:
 - O hero é o jogador embaixo, com as cartas viradas para cima${heroNicks?.length ? ` (nick: ${heroNicks.join(", ")})` : ""}.
+- QUEM ESTÁ NA MÃO: no pré-flop, fichas perto do centro podem ser o ante (big blind ante, ex.: "1 BB" sozinho no meio) ou blinds, e não um call. Para saber quem pagou o open, olhe o print do FLOP: só quem tem cartas no flop entrou no pote. Confira com a matemática do pote: se o pote do flop for só open + call do hero + blinds + ante, o pote é heads-up. Não diga que alguém "pagou" ou que é squeeze sem ver esse jogador com cartas no flop.
 - Jogador SEM cartas na frente já foldou. Fichas paradas na frente de quem foldou são blind ou aposta morta e NÃO tornam o pote multiway. Conte como ativos só os jogadores com cartas.
 - NAIPES: baralho de 4 cores. Decida o naipe pela COR da carta: verde = ♣, azul = ♦, vermelho = ♥, preto/cinza = ♠. Confira cada carta, uma por uma.
 - Posições possíveis: ${positions.join(", ")}. O botão do dealer é o disco com "D" (às vezes vermelho ou branco) perto de um jogador: ele é o BTN. Em sentido horário a partir do BTN: SB (quem tem 0.5bb no pré-flop), BB (quem tem 1bb), depois as demais até o CO. Mesa de 9: BTN, SB, BB, UTG, UTG+1, UTG+2, LJ, HJ, CO. Mesa de 8: BTN, SB, BB, UTG, UTG+1, LJ, HJ, CO. Com menos jogadores, somem as primeiras depois do BB.
