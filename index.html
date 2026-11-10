@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Diário de Mesa</title>
+<meta name="theme-color" content="#0b0e11">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='15' fill='%2334c38f'/><text x='16' y='22' font-size='17' text-anchor='middle' fill='%230b0e11'>♠</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="css/app.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+</head>
+<body>
+
+<!-- LOGIN -->
+<section id="login" class="login" hidden>
+  <form id="login-form" class="login-card">
+    <div class="brand big"><span class="chip">♠</span>Diário de Mesa</div>
+    <p class="muted" id="login-msg">Entre com seu e-mail e senha.</p>
+    <label>E-mail<input type="email" id="login-email" autocomplete="email" required></label>
+    <label>Senha<input type="password" id="login-pass" autocomplete="current-password" minlength="6" required></label>
+    <button class="btn primary" type="submit" id="login-btn">Entrar</button>
+    <button class="btn ghost" type="button" id="signup-btn">Primeiro acesso? Criar minha conta</button>
+  </form>
+</section>
+
+<!-- APP -->
+<div id="app" class="app" hidden>
+  <aside class="side" id="side">
+    <div class="side-top">
+      <div class="brand"><span class="chip">♠</span>Diário de Mesa</div>
+      <button class="icon-btn only-mobile" id="side-close" aria-label="Fechar menu">✕</button>
+    </div>
+    <nav class="side-nav">
+      <div class="side-label">Meu dia</div>
+      <a href="#hoje" data-view="hoje"><span class="ico">◐</span>Hoje</a>
+      <a href="#agenda" data-view="agenda"><span class="ico">▦</span>Agenda</a>
+      <a href="#pregrind" data-view="pregrind"><span class="ico">✓</span>Pré-grind<b class="badge" id="b-pregrind" hidden></b></a>
+      <div class="side-label">Estudo</div>
+      <a href="#maos" data-view="maos"><span class="ico">♠</span>Biblioteca de mãos<b class="badge" id="b-maos" hidden></b></a>
+      <a href="#plantao" data-view="plantao"><span class="ico">?</span>Plantão<b class="badge warn" id="b-plantao" hidden></b></a>
+      <a href="#leaks" data-view="leaks"><span class="ico">⚑</span>Leaks</a>
+      <div class="side-label">Configurações</div>
+      <a href="#ajustes" data-view="ajustes"><span class="ico">⚙</span>Ajustes</a>
+    </nav>
+    <div class="side-foot">
+      <div class="who"><span class="avatar" id="avatar">?</span><span class="who-mail" id="who-mail"></span></div>
+      <button class="icon-btn" id="logout" title="Sair" aria-label="Sair">⎋</button>
+    </div>
+  </aside>
+  <div class="scrim" id="scrim" hidden></div>
+
+  <div class="main-col">
+    <header class="topbar only-mobile">
+      <button class="icon-btn" id="side-open" aria-label="Abrir menu">☰</button>
+      <div class="brand"><span class="chip">♠</span>Diário de Mesa</div>
+    </header>
+
+    <main class="main">
+      <!-- HOJE -->
+      <section class="view" id="v-hoje">
+        <div class="page-h"><div><div class="eyebrow">Hoje</div><h1 id="today-title">—</h1></div></div>
+        <div class="kpis" id="kpis"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="card-h"><h2>Agenda de hoje</h2><button class="btn primary sm" data-new-event="today">+ Evento</button></div>
+            <ul class="timeline" id="today-events"></ul>
+            <div id="next-days"></div>
+          </div>
+          <div class="card">
+            <div class="card-h"><h2>Tarefas</h2><button class="btn ghost sm" id="clear-done">Limpar concluídas</button></div>
+            <form class="addline" id="task-form">
+              <input type="text" id="task-text" placeholder="Nova tarefa" required aria-label="Nova tarefa">
+              <select id="task-cat" aria-label="Categoria"><option value="grind">♠ Grind</option><option value="estudo">♦ Estudo</option><option value="pessoal">♥ Pessoal</option><option value="outro">♣ Outro</option></select>
+              <button class="btn primary sm" type="submit">Adicionar</button>
+            </form>
+            <ul class="checklist" id="task-list"></ul>
+          </div>
+        </div>
+        <p class="tip">Dica: em qualquer tela, tire um print (Win+Shift+S) e aperte <kbd>Ctrl</kbd>+<kbd>V</kbd> aqui para criar uma mão nova com ele.</p>
+      </section>
+
+      <!-- AGENDA -->
+      <section class="view" id="v-agenda" hidden>
+        <div class="page-h">
+          <div><div class="eyebrow">Agenda</div><h1 id="week-title">—</h1></div>
+          <div class="row">
+            <button class="btn sm" id="wk-prev" aria-label="Semana anterior">‹</button>
+            <button class="btn sm" id="wk-today">Esta semana</button>
+            <button class="btn sm" id="wk-next" aria-label="Próxima semana">›</button>
+            <button class="btn primary sm" data-new-event="today">+ Evento</button>
+          </div>
+        </div>
+        <div class="week" id="week"></div>
+      </section>
+
+      <!-- PRÉ-GRIND -->
+      <section class="view" id="v-pregrind" hidden>
+        <div class="page-h"><div><div class="eyebrow">Antes de sentar</div><h1>Pré-grind</h1><p class="muted">Lembretes e ajustes para levar para a próxima sessão.</p></div>
+          <button class="btn ghost sm" id="pg-clear">Limpar marcados</button></div>
+        <div class="card narrow">
+          <form class="addline two" id="pg-form">
+            <input type="text" id="pg-text" placeholder="Ex.: defender mais BB vs min-raise do BTN" required aria-label="Novo lembrete">
+            <button class="btn primary sm" type="submit">Adicionar</button>
+          </form>
+          <ul class="checklist" id="pg-list"></ul>
+        </div>
+      </section>
+
+      <!-- MÃOS -->
+      <section class="view" id="v-maos" hidden>
+        <div class="page-h">
+          <div><div class="eyebrow">Estudo</div><h1>Biblioteca de mãos</h1></div>
+          <button class="btn primary" id="new-hand">+ Nova mão</button>
+        </div>
+        <div class="filters">
+          <input type="search" id="f-q" placeholder="Buscar torneio, dúvida, cartas…" aria-label="Buscar">
+          <div class="chips" id="f-status">
+            <button data-s="rever" aria-pressed="true">Para rever</button>
+            <button data-s="revisada">Revisadas</button>
+            <button data-s="todas">Todas</button>
+          </div>
+          <select id="f-tag" aria-label="Filtrar por spot"><option value="">Todos os spots</option></select>
+          <select id="f-site" aria-label="Filtrar por sala"><option value="">Todas as salas</option></select>
+          <select id="f-leak" aria-label="Filtrar por leak"><option value="">Qualquer leak</option></select>
+        </div>
+        <div class="drop-hint" id="drop-hint">Cole um print (<kbd>Ctrl</kbd>+<kbd>V</kbd>) ou arraste imagens aqui para criar uma mão.</div>
+        <div class="hand-grid" id="hand-grid"></div>
+      </section>
+
+      <!-- PLANTÃO -->
+      <section class="view" id="v-plantao" hidden>
+        <div class="page-h">
+          <div><div class="eyebrow">Time</div><h1>Plantão</h1><p class="muted">Dúvidas para levar ao coach. Depois do plantão, anote a resposta em cada uma.</p></div>
+          <button class="btn primary" id="new-doubt">+ Dúvida sem mão</button>
+        </div>
+        <h2 class="sec">Para levar <span class="muted" id="pl-count"></span></h2>
+        <div class="hand-grid" id="pl-open"></div>
+        <h2 class="sec">Já respondidas</h2>
+        <div class="hand-grid" id="pl-done"></div>
+      </section>
+
+      <!-- LEAKS -->
+      <section class="view" id="v-leaks" hidden>
+        <div class="page-h"><div><div class="eyebrow">Estudo</div><h1>Leaks</h1><p class="muted">Erros recorrentes. Ligue mãos a cada leak pela tela da mão.</p></div></div>
+        <div class="card narrow">
+          <form id="leak-form" class="stack">
+            <input type="text" id="leak-title" placeholder="Ex.: overfold no river vs barril de reg" required aria-label="Título do leak">
+            <div class="addline two">
+              <input type="text" id="leak-desc" placeholder="Como corrigir (opcional)" aria-label="Descrição">
+              <button class="btn primary sm" type="submit">Adicionar</button>
+            </div>
+          </form>
+          <ul class="leak-list" id="leak-list"></ul>
+        </div>
+      </section>
+
+      <!-- AJUSTES -->
+      <section class="view" id="v-ajustes" hidden>
+        <div class="page-h"><div><div class="eyebrow">Configurações</div><h1>Ajustes</h1></div></div>
+        <div class="card narrow">
+          <h2>Spots (tags das mãos)</h2>
+          <form class="addline two" id="tag-form">
+            <input type="text" id="tag-name" placeholder="Novo spot, ex.: float OOP" required aria-label="Novo spot">
+            <button class="btn primary sm" type="submit">Adicionar</button>
+          </form>
+          <div class="tag-admin" id="tag-admin"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- MÃO -->
+<dialog id="dlg-hand" class="wide">
+  <form id="f-hand" method="dialog">
+    <div class="dlg-h"><h2 id="h-head">Nova mão</h2><button class="icon-btn" type="button" data-close aria-label="Fechar">✕</button></div>
+    <div class="gallery" id="h-gallery"></div>
+    <label class="dropzone" id="h-drop">
+      <input type="file" id="h-file" accept="image/*" multiple hidden>
+      <span>Cole (<kbd>Ctrl</kbd>+<kbd>V</kbd>), arraste ou <u>escolha prints</u>. Um por street, se quiser.</span>
+    </label>
+    <div class="f4">
+      <label>Data<input type="date" id="h-date"></label>
+      <label>Sala<select id="h-site"><option value="">—</option></select></label>
+      <label class="span2">Torneio<input type="text" id="h-tour" placeholder="Ex.: $109 Sunday Million PKO"></label>
+    </div>
+    <div class="f4">
+      <label>Cartas<input type="text" id="h-cards" placeholder="AQo"></label>
+      <label>Posição<select id="h-pos"><option value="">—</option></select></label>
+      <label>Stack (BB)<input type="number" id="h-stack" step="0.1" min="0" inputmode="decimal"></label>
+      <label>Board<input type="text" id="h-board" placeholder="9♣ 9♥ J♠ T♥ T♦"></label>
+    </div>
+    <div><div class="lbl">Spots</div><div class="tag-pick" id="h-tags"></div></div>
+    <label>Dúvida<textarea id="h-question" placeholder="Ex.: call no turn? lead no river?"></textarea></label>
+    <label>Conclusão / o que o solver diz<textarea id="h-conclusion" placeholder="Ex.: HRC prefere fold; AQ está no fundo do range de call"></textarea></label>
+    <div class="f4">
+      <label>Status<select id="h-status"><option value="rever">Para rever</option><option value="revisada">Revisada</option></select></label>
+      <label class="span2">Leak relacionado<select id="h-leak"><option value="">Nenhum</option></select></label>
+      <label class="check"><input type="checkbox" id="h-plantao"> Levar pro plantão</label>
+    </div>
+    <label id="h-pans-wrap" hidden>Resposta do plantão<textarea id="h-pans" placeholder="O que o coach respondeu"></textarea></label>
+    <div class="dlg-foot">
+      <button class="btn danger" type="button" id="h-del" hidden>Excluir</button>
+      <span class="spacer"></span>
+      <button class="btn" type="button" data-close>Cancelar</button>
+      <button class="btn primary" type="submit" id="h-save">Salvar</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- EVENTO -->
+<dialog id="dlg-event">
+  <form id="f-event" method="dialog">
+    <div class="dlg-h"><h2 id="e-head">Novo evento</h2><button class="icon-btn" type="button" data-close aria-label="Fechar">✕</button></div>
+    <label>Título<input type="text" id="e-title" required placeholder="Ex.: Grind domingo"></label>
+    <div class="f3">
+      <label>Data<input type="date" id="e-date" required></label>
+      <label>Início<input type="time" id="e-start"></label>
+      <label>Fim<input type="time" id="e-end"></label>
+    </div>
+    <label>Categoria<select id="e-cat"><option value="grind">♠ Grind</option><option value="estudo">♦ Estudo</option><option value="plantao">? Plantão</option><option value="pessoal">♥ Pessoal</option><option value="outro">♣ Outro</option></select></label>
+    <label>Notas<textarea id="e-note"></textarea></label>
+    <div class="dlg-foot">
+      <button class="btn danger" type="button" id="e-del" hidden>Excluir</button>
+      <span class="spacer"></span>
+      <button class="btn" type="button" data-close>Cancelar</button>
+      <button class="btn primary" type="submit">Salvar</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- VISUALIZADOR -->
+<dialog id="dlg-view" class="viewer"><img id="viewer-img" alt="Print da mão"><button class="icon-btn" data-close aria-label="Fechar">✕</button></dialog>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
