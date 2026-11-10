@@ -27,7 +27,7 @@ function fail(e, what) {
 }
 
 /* ================= supabase ================= */
-const configured = !SUPABASE_URL.startsWith("COLE_");
+const configured = !SUPABASE_URL.startsWith("COLE_") && !!window.supabase;
 const sb = configured ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 const S = { user: null, hands: [], images: [], events: [], tasks: [], pregrind: [], leaks: [], tags: [], urls: new Map() };

@@ -1,8 +1,8 @@
 // Preencha com os dados do seu projeto Supabase:
 // Supabase → Project Settings → API → "Project URL" e "anon public key".
 // A chave "anon" é pública por natureza: a segurança vem das regras do banco (schema.sql).
-export const SUPABASE_URL = "COLE_AQUI_A_PROJECT_URL";
-export const SUPABASE_ANON_KEY = "COLE_AQUI_A_ANON_KEY";
+export const SUPABASE_URL = "https://setfwqbgnrdqjhdyyrwm.supabase.co";
+export const SUPABASE_ANON_KEY = "sb_publishable_pgZwjSF38yBhEQo1B0AmRQ_JSn2O374";
 
 export const SITES = ["PokerStars", "GGPoker", "CoinPoker", "PartyPoker", "iPoker", "Bodog", "YaPoker"];
 export const POSITIONS = ["UTG", "UTG+1", "UTG+2", "LJ", "HJ", "CO", "BTN", "SB", "BB"];
