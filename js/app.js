@@ -403,7 +403,9 @@ function applyAI(a) {
   let n = 0;
   const put = (sel, val) => {
     const el = $(sel);
-    if (val === null || val === undefined || String(val).trim() === "" || el.value.trim()) return;
+    // preenche campos vazios ou que ainda estão como a IA deixou (não mexe no que você editou)
+    if (val === null || val === undefined || String(val).trim() === "") return;
+    if (el.value.trim() && !el.classList.contains("ai-filled")) return;
     el.value = String(val); el.classList.add("ai-filled"); n++;
   };
   if (a.site && SITES.includes(a.site)) put("#h-site", a.site);
@@ -416,6 +418,7 @@ function applyAI(a) {
   put("#h-question", a.question_suggestion);
   const want = new Set(Array.isArray(a.tags) ? a.tags : []);
   $$("#h-tags button").forEach(b => {
+    if (b.classList.contains("ai-filled") && !want.has(b.textContent)) { b.setAttribute("aria-pressed", "false"); b.classList.remove("ai-filled"); }
     if (want.has(b.textContent) && b.getAttribute("aria-pressed") !== "true") { b.setAttribute("aria-pressed", "true"); b.classList.add("ai-filled"); n++; }
   });
   aiMsg(n ? "Preenchido pela IA. Confira os campos destacados antes de salvar." : "A IA não encontrou nada novo para preencher.", "ok");
