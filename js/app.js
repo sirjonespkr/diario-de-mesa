@@ -321,19 +321,26 @@ function fillStaticSelects() {
 
 /* ================= tela da dúvida ================= */
 let backTo = "maos";          // de onde veio (biblioteca ou plantão)
+let navIds = null;            // a lista em que você estava quando abriu a dúvida (fica fixa enquanto navega)
 let showIdx = null;           // qual print está em destaque
 const CM = { text: "", files: [] }; // rascunho do comentário
 const fmtWhen = iso => { const d = new Date(iso); return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) + " " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }); };
 
+function currentListIds() {
+  return (backTo === "plantao" ? libraryItems().filter(x => x.d.plantao) : filteredItems()).filter(x => x.d.id).map(x => x.d.id);
+}
 function doubtNav(d) {
-  const list = (backTo === "plantao" ? libraryItems().filter(x => x.d.plantao) : filteredItems()).filter(x => x.d.id);
-  const pos = list.findIndex(x => x.d.id === d.id);
-  const after = pos >= 0 ? list.slice(pos + 1) : [];
+  // usa a lista fixada no momento em que você abriu a dúvida; assim resolver/reabrir não tira a dúvida da navegação
+  let ids = navIds && navIds.includes(d.id) ? navIds.filter(id => S.decisions.some(x => x.id === id)) : currentListIds();
+  if (!ids.includes(d.id)) ids = [d.id];
+  const pos = ids.indexOf(d.id);
+  const statusOf = id => S.decisions.find(x => x.id === id)?.status;
   return {
-    pos, total: list.length,
-    prev: pos > 0 ? list[pos - 1].d.id : null,
-    next: pos >= 0 && pos < list.length - 1 ? list[pos + 1].d.id : null,
-    nextOpen: (after.find(x => x.d.status !== "revisada") || {}).d?.id || null
+    pos, total: ids.length,
+    prev: pos > 0 ? ids[pos - 1] : null,
+    next: pos < ids.length - 1 ? ids[pos + 1] : null,
+    // próxima da mesma "pilha": abertas → próxima aberta; resolvidas → próxima resolvida
+    nextSame: status => ids.slice(pos + 1).find(id => statusOf(id) === status) || null
   };
 }
 
@@ -376,9 +383,8 @@ function renderDoubt() {
       ${d.situation ? `<p class="muted" style="margin:0">${esc(d.situation)}</p>` : ""}
       <div class="dv-actions">
         ${resolved
-          ? `<button class="btn" type="button" data-act="reopen">Reabrir dúvida</button>`
-          : `<button class="btn primary" type="button" data-act="resolve">✓ Marcar como resolvida</button>
-             ${nav.nextOpen ? `<button class="btn" type="button" data-act="resolve-next">Resolver e ir para a próxima</button>` : ""}`}
+          ? `<button class="btn" type="button" data-act="toggle" title="Reabre esta dúvida e abre a próxima resolvida da lista">↺ Reabrir${nav.nextSame("revisada") ? " e ir para a próxima" : ""}</button>`
+          : `<button class="btn primary" type="button" data-act="toggle" title="Marca como resolvida e abre a próxima aberta da lista">✓ Marcar como resolvida${nav.nextSame("rever") ? " e ir para a próxima" : ""}</button>`}
         <button class="btn" type="button" data-act="plantao" aria-pressed="${!!d.plantao}">${d.plantao ? "✓ No plantão" : "Levar pro plantão"}</button>
         ${imgs.length ? `<button class="btn" type="button" data-act="show">▶ Apresentar</button>` : ""}
         <button class="btn ghost" type="button" data-act="edit">Editar mão</button>
@@ -473,11 +479,13 @@ $("#v-duvida").addEventListener("click", async e => {
 
   const act = t.closest("[data-act]")?.dataset.act;
   try {
-    if (act === "resolve" || act === "reopen" || act === "resolve-next") {
-      const nextOpen = doubtNav(d).nextOpen;
-      await setDecision(d, { status: act === "reopen" ? "rever" : "revisada" }, "atualizar a dúvida");
-      toast(act === "reopen" ? "Dúvida reaberta" : "Dúvida resolvida");
-      if (act === "resolve-next" && nextOpen) { CM.text = ""; location.hash = "duvida-" + nextOpen; } else renderAll();
+    if (act === "toggle") {
+      const before = d.status === "revisada" ? "revisada" : "rever";
+      const next = doubtNav(d).nextSame(before);
+      await setDecision(d, { status: before === "revisada" ? "rever" : "revisada" }, "atualizar a dúvida");
+      const what = before === "revisada" ? "Dúvida reaberta" : "Dúvida resolvida";
+      if (next) { toast(what); CM.text = ""; location.hash = "duvida-" + next; }
+      else { toast(what + ". Era a última da lista."); renderAll(); }
       return;
     }
     if (act === "plantao") { await setDecision(d, { plantao: !d.plantao }, "atualizar o plantão"); renderAll(); return; }
@@ -980,7 +988,7 @@ document.addEventListener("click", async e => {
   const ev = t.closest("[data-ev]"); if (ev) { openEvent(ev.dataset.ev); return; }
   const hd = t.closest("[data-hand]");
   if (hd) {
-    if (hd.dataset.dec) { backTo = view === "plantao" ? "plantao" : "maos"; location.hash = "duvida-" + hd.dataset.dec; }
+    if (hd.dataset.dec) { backTo = view === "plantao" ? "plantao" : "maos"; navIds = currentListIds(); location.hash = "duvida-" + hd.dataset.dec; }
     else openHand(hd.dataset.hand);
     return;
   }
