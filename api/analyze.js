@@ -113,7 +113,7 @@ module.exports = async (req, res) => {
       headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 2500,
+        max_tokens: 12000,
         tools: [TOOL],
         // alguns modelos novos não aceitam forçar a ferramenta; pedimos no texto e lemos JSON como plano B
         tool_choice: { type: "auto" },
@@ -123,6 +123,8 @@ module.exports = async (req, res) => {
     const j = await r.json();
     if (!r.ok) return res.status(502).json({ error: "ai_error", detail: j?.error?.message || `HTTP ${r.status}` });
     let out = (j.content || []).find(c => c.type === "tool_use")?.input;
+    // às vezes listas chegam como texto JSON
+    if (out && typeof out.decisions === "string") { try { out.decisions = JSON.parse(out.decisions); } catch { out.decisions = []; } }
     if (!out) {
       const text = (j.content || []).filter(c => c.type === "text").map(c => c.text).join("\n");
       const m = text.match(/\{[\s\S]*\}/);
@@ -140,6 +142,8 @@ module.exports = async (req, res) => {
       tags: (Array.isArray(d.tags) ? d.tags : []).filter(t => ctx.tags.includes(t)).slice(0, 2)
     }));
     out.model = MODEL;
+    out.stop_reason = j.stop_reason;
+    out.usage = j.usage;
     return res.status(200).json(out);
   } catch (e) {
     return res.status(502).json({ error: "ai_unreachable", detail: String(e?.message || e) });

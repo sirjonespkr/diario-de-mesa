@@ -579,6 +579,7 @@ function applyAI(a, vis) {
   const pos = new Map(vis.map((i, k) => [i.key, k]));
   H.decs.sort((p, q2) => (pos.has(p.imgKey) ? pos.get(p.imgKey) : 99) - (pos.has(q2.imgKey) ? pos.get(q2.imgKey) : 99));
   renderDecs();
+  if (a.stop_reason === "max_tokens") { aiMsg(`A resposta da IA veio cortada (${added} dúvida${added === 1 ? "" : "s"}). Clique em “Ler com IA” de novo.`, "warn"); return; }
   aiMsg(n || added ? `Preenchido pela IA: ${added} dúvida${added === 1 ? "" : "s"}. Confira os campos em roxo antes de salvar.` : "A IA não encontrou nada novo para preencher.", "ok");
 }
 $("#h-ai-run").addEventListener("click", () => { aiOff = false; runAI(true); });
