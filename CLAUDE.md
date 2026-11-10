@@ -7,7 +7,13 @@ Site pessoal (um único usuário, jogador profissional de poker, MTT) para organ
 - supabase-js via CDN (jsDelivr, versão fixada no `index.html`).
 - Banco, login e imagens: Supabase (projeto `setfwqbgnrdqjhdyyrwm`, região São Paulo). Estrutura em `supabase/schema.sql`; mudanças incrementais em `supabase/migrations/`, que o dono roda à mão no SQL Editor.
 - Hospedagem: Vercel, com deploy automático a cada push na `main`. URL: https://diario-de-mesa-gamma.vercel.app
-- Função serverless `api/analyze.js` (CommonJS, sem dependências): lê prints com a API da Anthropic (modelo padrão `claude-haiku-5-5`, trocável pela env `ANTHROPIC_MODEL`) e devolve os campos da mão. Exige a env `ANTHROPIC_API_KEY` e um token de login válido do Supabase.
+- Função serverless `api/analyze.js` (CommonJS, sem dependências): lê prints com a API da Anthropic (modelo padrão `claude-sonnet-5-5`, trocável pela env `ANTHROPIC_MODEL`). Recebe os prints com as legendas e devolve os dados da mão e uma lista de dúvidas (uma por print). Exige a env `ANTHROPIC_API_KEY` e um token de login válido do Supabase.
+
+## Modelo de dados
+- `hands`: dados da mão (sala, torneio, cartas, posição, stack inicial, board final, `situation` = resumo/história).
+- `hand_images`: prints da mão, com `caption` (legenda curta do jogador, estilo "cbet 1/3 C. Lead?").
+- `decisions`: as dúvidas da mão, uma por momento/print (`image_id`, street, situação, pergunta, spots, conclusão, status, plantão, leak). A biblioteca e o plantão mostram um card por dúvida.
+- As colunas question/tags/conclusion/plantao/leak_id em `hands` são legado: foram migradas para `decisions` e não são mais usadas.
 
 ## Regras
 - Todas as tabelas têm RLS `user_id = auth.uid()`. Prints ficam no bucket privado `hands`, em `<user_id>/<hand_id>/arquivo.jpg`.

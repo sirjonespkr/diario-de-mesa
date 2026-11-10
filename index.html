@@ -115,7 +115,7 @@
           <button class="btn primary" id="new-hand">+ Nova mão</button>
         </div>
         <div class="filters">
-          <input type="search" id="f-q" placeholder="Buscar torneio, dúvida, cartas…" aria-label="Buscar">
+          <input type="search" id="f-q" placeholder="Buscar dúvida, legenda, torneio, cartas…" aria-label="Buscar">
           <div class="chips" id="f-status">
             <button data-s="rever" aria-pressed="true">Para rever</button>
             <button data-s="revisada">Revisadas</button>
@@ -125,7 +125,7 @@
           <select id="f-site" aria-label="Filtrar por sala"><option value="">Todas as salas</option></select>
           <select id="f-leak" aria-label="Filtrar por leak"><option value="">Qualquer leak</option></select>
         </div>
-        <div class="drop-hint" id="drop-hint">Cole um print (<kbd>Ctrl</kbd>+<kbd>V</kbd>) ou arraste imagens aqui para criar uma mão.</div>
+        <div class="drop-hint" id="drop-hint">Cole um print (<kbd>Ctrl</kbd>+<kbd>V</kbd>) ou arraste imagens aqui para criar uma mão. Cada card abaixo é uma dúvida.</div>
         <div class="hand-grid" id="hand-grid"></div>
       </section>
 
@@ -143,7 +143,7 @@
 
       <!-- LEAKS -->
       <section class="view" id="v-leaks" hidden>
-        <div class="page-h"><div><div class="eyebrow">Estudo</div><h1>Leaks</h1><p class="muted">Erros recorrentes. Ligue mãos a cada leak pela tela da mão.</p></div></div>
+        <div class="page-h"><div><div class="eyebrow">Estudo</div><h1>Leaks</h1><p class="muted">Erros recorrentes. Ligue dúvidas a cada leak pela tela da mão.</p></div></div>
         <div class="card narrow">
           <form id="leak-form" class="stack">
             <input type="text" id="leak-title" placeholder="Ex.: overfold no river vs barril de reg" required aria-label="Título do leak">
@@ -176,12 +176,14 @@
 <dialog id="dlg-hand" class="wide">
   <form id="f-hand" method="dialog">
     <div class="dlg-h"><h2 id="h-head">Nova mão</h2><button class="icon-btn" type="button" data-close aria-label="Fechar">✕</button></div>
+
     <div class="gallery" id="h-gallery"></div>
     <label class="dropzone" id="h-drop">
       <input type="file" id="h-file" accept="image/*" multiple hidden>
-      <span>Cole (<kbd>Ctrl</kbd>+<kbd>V</kbd>), arraste ou <u>escolha prints</u>. Um por street, se quiser.</span>
+      <span>Cole (<kbd>Ctrl</kbd>+<kbd>V</kbd>), arraste ou <u>escolha prints</u>. Um por momento da mão, com uma legenda curta em cada um.</span>
     </label>
-    <div class="ai-bar" id="h-ai"><span class="ai-dot"></span><span id="h-ai-msg">Ao colar um print, a IA preenche os campos sozinha.</span><button class="btn sm" type="button" id="h-ai-run" hidden>Ler prints com IA</button></div>
+    <div class="ai-bar" id="h-ai"><span class="ai-dot"></span><span id="h-ai-msg"></span><button class="btn sm" type="button" id="h-ai-run" hidden>Ler com IA</button></div>
+
     <div class="f4">
       <label>Data<input type="date" id="h-date"></label>
       <label>Sala<select id="h-site"><option value="">—</option></select></label>
@@ -190,21 +192,16 @@
     <div class="f4">
       <label>Cartas<input type="text" id="h-cards" placeholder="AQo"></label>
       <label>Posição<select id="h-pos"><option value="">—</option></select></label>
-      <label>Stack (BB)<input type="number" id="h-stack" step="0.1" min="0" inputmode="decimal"></label>
-      <label>Board<input type="text" id="h-board" placeholder="9♣ 9♥ J♠ T♥ T♦"></label>
+      <label>Stack inicial (BB)<input type="number" id="h-stack" step="0.1" min="0" inputmode="decimal"></label>
+      <label>Board<input type="text" id="h-board" placeholder="K♠ 7♦ 2♣ Q♥"></label>
     </div>
-    <label>Situação<textarea id="h-sit" rows="2" placeholder="Ex.: SRP, hero CO 38bb vs BTN, river, vilão aposta 6.5bb no pote de 15.6bb"></textarea></label>
-    <div><div class="lbl">Spots</div><div class="tag-pick" id="h-tags"></div></div>
-    <label>Dúvida<textarea id="h-question" placeholder="Ex.: call no turn? lead no river?"></textarea></label>
-    <label>Conclusão / o que o solver diz<textarea id="h-conclusion" placeholder="Ex.: HRC prefere fold; AQ está no fundo do range de call"></textarea></label>
-    <div class="f4">
-      <label>Status<select id="h-status"><option value="rever">Para rever</option><option value="revisada">Revisada</option></select></label>
-      <label class="span2">Leak relacionado<select id="h-leak"><option value="">Nenhum</option></select></label>
-      <label class="check"><input type="checkbox" id="h-plantao"> Levar pro plantão</label>
-    </div>
-    <label id="h-pans-wrap" hidden>Resposta do plantão<textarea id="h-pans" placeholder="O que o coach respondeu"></textarea></label>
+    <label>Resumo da mão<textarea id="h-sit" rows="2" placeholder="Ex.: 900 restantes (ITM 1500). CO abre 2bb, hero defende no BB. Flop X/C vs cbet 1/3…"></textarea></label>
+
+    <div class="dec-head"><h3>Dúvidas <span class="muted" id="h-dec-count"></span></h3><button class="btn sm" type="button" id="h-dec-add">+ Dúvida</button></div>
+    <div class="decs" id="h-decs"></div>
+
     <div class="dlg-foot">
-      <button class="btn danger" type="button" id="h-del" hidden>Excluir</button>
+      <button class="btn danger" type="button" id="h-del" hidden>Excluir mão</button>
       <span class="spacer"></span>
       <button class="btn" type="button" data-close>Cancelar</button>
       <button class="btn primary" type="submit" id="h-save">Salvar</button>

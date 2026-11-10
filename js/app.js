@@ -11,10 +11,13 @@ const addDays = (s, n) => { const d = parse(s); d.setDate(d.getDate() + n); retu
 const weekStart = s => { const d = parse(s); d.setDate(d.getDate() - (d.getDay() + 6) % 7); return iso(d); };
 const shortDate = s => s ? parse(s).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "";
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : "10000000-1000-4000-8000-100000000000".replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)));
 const DOW = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
 const CATS = { grind: ["Grind", "♠"], estudo: ["Estudo", "♦"], plantao: ["Plantão", "?"], pessoal: ["Pessoal", "♥"], outro: ["Outro", "♣"] };
 const cat = c => CATS[c] ? c : "outro";
 const suit = c => `<span class="suit c-${cat(c)}" title="${CATS[cat(c)][0]}">${CATS[cat(c)][1]}</span>`;
+const STREETS = { preflop: "Pré-flop", flop: "Flop", turn: "Turn", river: "River" };
+const streetTag = s => STREETS[s] ? `<span class="street ${s}">${STREETS[s]}</span>` : "";
 
 let toastTimer;
 function toast(msg, err = false) {
@@ -30,7 +33,7 @@ function fail(e, what) {
 const configured = !SUPABASE_URL.startsWith("COLE_") && !!window.supabase;
 const sb = configured ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
-const S = { user: null, hands: [], images: [], events: [], tasks: [], pregrind: [], leaks: [], tags: [], urls: new Map() };
+const S = { user: null, hands: [], images: [], decisions: [], events: [], tasks: [], pregrind: [], leaks: [], tags: [], urls: new Map() };
 
 async function q(promise, what) {
   const { data, error } = await promise;
@@ -39,18 +42,18 @@ async function q(promise, what) {
 }
 
 async function loadAll() {
-  const [hands, images, events, tasks, pregrind, leaks, tags] = await Promise.all([
+  const [hands, images, decisions, events, tasks, pregrind, leaks, tags] = await Promise.all([
     q(sb.from("hands").select("*").order("created_at", { ascending: false }), "carregar as mãos"),
     q(sb.from("hand_images").select("*").order("sort"), "carregar os prints"),
+    q(sb.from("decisions").select("*").order("sort"), "carregar as dúvidas (rodou o SQL 003?)"),
     q(sb.from("events").select("*"), "carregar a agenda"),
     q(sb.from("tasks").select("*").order("created_at"), "carregar as tarefas"),
     q(sb.from("pregrind").select("*").order("created_at"), "carregar o pré-grind"),
     q(sb.from("leaks").select("*").order("created_at"), "carregar os leaks"),
     q(sb.from("tags").select("*").order("sort"), "carregar os spots")
   ]);
-  Object.assign(S, { hands, images, events, tasks, pregrind, leaks, tags });
+  Object.assign(S, { hands, images, decisions, events, tasks, pregrind, leaks, tags });
   if (!tags.length) {
-    // upsert ignorando duplicados: seguro mesmo se duas abas tentarem criar ao mesmo tempo
     const rows = DEFAULT_TAGS.map((name, i) => ({ user_id: S.user.id, name, sort: i }));
     const { error } = await sb.from("tags").upsert(rows, { onConflict: "user_id,name", ignoreDuplicates: true });
     if (error) console.error(error);
@@ -68,6 +71,7 @@ async function signImages(paths) {
   }
 }
 const imagesOf = id => S.images.filter(i => i.hand_id === id).sort((a, b) => a.sort - b.sort);
+const decisionsOf = id => S.decisions.filter(d => d.hand_id === id).sort((a, b) => a.sort - b.sort);
 
 /* ================= auth ================= */
 async function boot() {
@@ -122,7 +126,7 @@ function route() {
   closeSide();
   window.scrollTo(0, 0);
 }
-window.addEventListener("hashchange", route);
+window.addEventListener("hashchange", () => { route(); renderAll(); });
 const openSide = () => { $("#side").classList.add("open"); $("#scrim").hidden = false; };
 const closeSide = () => { $("#side").classList.remove("open"); $("#scrim").hidden = true; };
 $("#side-open").addEventListener("click", openSide);
@@ -130,12 +134,12 @@ $("#side-close").addEventListener("click", closeSide);
 $("#scrim").addEventListener("click", closeSide);
 
 /* ================= render ================= */
-function renderAll() { renderBadges(); renderToday(); renderAgenda(); renderPregrind(); renderHands(); renderPlantao(); renderLeaks(); renderTags(); }
+function renderAll() { renderBadges(); renderToday(); renderAgenda(); renderPregrind(); renderLibrary(); renderPlantao(); renderLeaks(); renderTags(); }
 
 function counts() {
   return {
-    rever: S.hands.filter(h => h.status !== "revisada").length,
-    plantao: S.hands.filter(h => h.plantao && !h.plantao_answer).length,
+    rever: S.decisions.filter(d => d.status !== "revisada").length,
+    plantao: S.decisions.filter(d => d.plantao && !d.plantao_answer).length,
     pregrind: S.pregrind.filter(p => !p.done).length
   };
 }
@@ -158,7 +162,7 @@ function renderToday() {
   $("#today-title").textContent = title.charAt(0).toUpperCase() + title.slice(1);
   const c = counts();
   $("#kpis").innerHTML = `
-    <a class="kpi gold" href="#maos"><b>${c.rever}</b><span>Mãos para rever</span></a>
+    <a class="kpi gold" href="#maos"><b>${c.rever}</b><span>Dúvidas para rever</span></a>
     <a class="kpi" href="#plantao"><b>${c.plantao}</b><span>Dúvidas pro plantão</span></a>
     <a class="kpi green" href="#pregrind"><b>${c.pregrind}</b><span>Lembretes do pré-grind</span></a>`;
   const evs = eventsOn(t);
@@ -207,67 +211,83 @@ function renderPregrind() {
     : `<li style="display:block"><p class="empty">Nenhum lembrete. Anote aqui ajustes que você quer aplicar no próximo grind.</p></li>`;
 }
 
-/* ---- mãos ---- */
+/* ---- biblioteca (um card por dúvida) ---- */
 const F = { q: "", status: "rever", tag: "", site: "", leak: "" };
-function handCard(h) {
-  const imgs = imagesOf(h.id), first = imgs[0], url = first && S.urls.get(first.path);
-  return `<button type="button" class="hand" data-hand="${h.id}">
-    <div class="thumb">${url ? `<img src="${esc(url)}" alt="" loading="lazy">` : `<span class="noimg">${h.hero_cards ? "" : "?"}</span>`}${imgs.length > 1 ? `<span class="n">${imgs.length} prints</span>` : ""}</div>
+function libraryItems() {
+  const handById = new Map(S.hands.map(h => [h.id, h]));
+  const items = [];
+  for (const d of S.decisions) { const h = handById.get(d.hand_id); if (h) items.push({ d, h }); }
+  // mãos sem nenhuma dúvida ainda aparecem como um card da mão
+  const withDec = new Set(S.decisions.map(d => d.hand_id));
+  for (const h of S.hands) if (!withDec.has(h.id)) items.push({ d: { id: null, hand_id: h.id, status: "rever", tags: [], sort: 0 }, h });
+  const order = new Map(S.hands.map((h, i) => [h.id, i]));
+  return items.sort((a, b) => (order.get(a.h.id) - order.get(b.h.id)) || (a.d.sort - b.d.sort));
+}
+function decCard({ d, h }) {
+  const imgs = imagesOf(h.id);
+  const img = (d.image_id && imgs.find(i => i.id === d.image_id)) || imgs[0];
+  const url = img && S.urls.get(img.path);
+  const all = decisionsOf(h.id), idx = all.findIndex(x => x.id === d.id);
+  const showAnswer = view === "plantao" && d.plantao_answer;
+  return `<button type="button" class="hand" data-hand="${h.id}" ${d.id ? `data-dec="${d.id}"` : ""}>
+    <div class="thumb">${url ? `<img src="${esc(url)}" alt="" loading="lazy">` : `<span class="noimg">?</span>`}${imgs.length > 1 ? `<span class="n">${imgs.length} prints</span>` : ""}</div>
     <div class="body">
-      <div class="top">${h.hero_cards ? `<span class="cards">${esc(h.hero_cards)}</span>` : ""}${h.position ? `<span class="pos">${esc(h.position)}</span>` : ""}${h.stack_bb ? `<span class="pos">${esc(h.stack_bb)}bb</span>` : ""}
-        ${h.plantao ? `<span class="st pl">plantão</span>` : ""}<span class="st ${h.status === "revisada" ? "revisada" : "rever"}">${h.status === "revisada" ? "revisada" : "rever"}</span></div>
+      <div class="top">${streetTag(d.street)}${h.hero_cards ? `<span class="cards">${esc(h.hero_cards.split(" · ")[0])}</span>` : ""}${h.position ? `<span class="pos">${esc(h.position)}</span>` : ""}
+        ${d.plantao ? `<span class="st pl">plantão</span>` : ""}<span class="st ${d.status === "revisada" ? "revisada" : "rever"}">${d.status === "revisada" ? "revisada" : "rever"}</span></div>
       ${h.tournament || h.site ? `<div class="tour">${esc([h.site, h.tournament].filter(Boolean).join(" · "))}${h.played_on ? " · " + shortDate(h.played_on) : ""}</div>` : ""}
-      ${h.question ? `<div class="q">${esc(h.question)}</div>` : ""}
-      ${h.plantao_answer && view === "plantao" ? `<div class="ans">↳ ${esc(h.plantao_answer)}</div>` : ""}
-      ${h.tags?.length ? `<div class="tags">${h.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}
+      ${d.question ? `<div class="q">${esc(d.question)}</div>` : `<div class="q muted">Sem dúvida escrita</div>`}
+      ${d.situation ? `<div class="sit">${esc(d.situation)}</div>` : ""}
+      ${showAnswer ? `<div class="ans">↳ ${esc(d.plantao_answer)}</div>` : ""}
+      ${d.tags?.length ? `<div class="tags">${d.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}
+      ${all.length > 1 && idx >= 0 ? `<div class="of">dúvida ${idx + 1} de ${all.length} nesta mão</div>` : ""}
     </div></button>`;
 }
-function renderHands() {
-  const tagSel = $("#f-tag"), leakSel = $("#f-leak");
-  tagSel.innerHTML = `<option value="">Todos os spots</option>` + S.tags.map(t => `<option ${F.tag === t.name ? "selected" : ""}>${esc(t.name)}</option>`).join("");
-  leakSel.innerHTML = `<option value="">Qualquer leak</option>` + S.leaks.map(l => `<option value="${l.id}" ${F.leak === l.id ? "selected" : ""}>${esc(l.title)}</option>`).join("");
+function renderLibrary() {
+  $("#f-tag").innerHTML = `<option value="">Todos os spots</option>` + S.tags.map(t => `<option ${F.tag === t.name ? "selected" : ""}>${esc(t.name)}</option>`).join("");
+  $("#f-leak").innerHTML = `<option value="">Qualquer leak</option>` + S.leaks.map(l => `<option value="${l.id}" ${F.leak === l.id ? "selected" : ""}>${esc(l.title)}</option>`).join("");
   const words = F.q.toLowerCase().split(/\s+/).filter(Boolean);
-  const list = S.hands.filter(h => {
-    if (F.status === "rever" && h.status === "revisada") return false;
-    if (F.status === "revisada" && h.status !== "revisada") return false;
-    if (F.tag && !h.tags?.includes(F.tag)) return false;
+  const list = libraryItems().filter(({ d, h }) => {
+    if (F.status === "rever" && d.status === "revisada") return false;
+    if (F.status === "revisada" && d.status !== "revisada") return false;
+    if (F.tag && !d.tags?.includes(F.tag)) return false;
     if (F.site && h.site !== F.site) return false;
-    if (F.leak && h.leak_id !== F.leak) return false;
+    if (F.leak && d.leak_id !== F.leak) return false;
     if (words.length) {
-      const hay = [h.tournament, h.situation, h.question, h.conclusion, h.hero_cards, h.board, h.site, h.position, ...(h.tags || [])].join(" ").toLowerCase();
+      const caps = imagesOf(h.id).map(i => i.caption || "");
+      const hay = [h.tournament, h.situation, h.hero_cards, h.board, h.site, h.position, d.situation, d.question, d.conclusion, d.plantao_answer, STREETS[d.street], ...(d.tags || []), ...caps].join(" ").toLowerCase();
       if (!words.every(w => hay.includes(w))) return false;
     }
     return true;
   });
-  $("#hand-grid").innerHTML = list.length ? list.map(handCard).join("")
-    : `<p class="empty" style="grid-column:1/-1">${S.hands.length ? "Nenhuma mão com esses filtros." : "Nenhuma mão ainda. Cole um print aqui ou clique em “+ Nova mão”."}</p>`;
+  $("#hand-grid").innerHTML = list.length ? list.map(decCard).join("")
+    : `<p class="empty" style="grid-column:1/-1">${S.hands.length ? "Nenhuma dúvida com esses filtros." : "Nenhuma mão ainda. Cole um print aqui ou clique em “+ Nova mão”."}</p>`;
 }
-$("#f-q").addEventListener("input", e => { F.q = e.target.value; renderHands(); });
-$("#f-tag").addEventListener("change", e => { F.tag = e.target.value; renderHands(); });
-$("#f-site").addEventListener("change", e => { F.site = e.target.value; renderHands(); });
-$("#f-leak").addEventListener("change", e => { F.leak = e.target.value; renderHands(); });
+$("#f-q").addEventListener("input", e => { F.q = e.target.value; renderLibrary(); });
+$("#f-tag").addEventListener("change", e => { F.tag = e.target.value; renderLibrary(); });
+$("#f-site").addEventListener("change", e => { F.site = e.target.value; renderLibrary(); });
+$("#f-leak").addEventListener("change", e => { F.leak = e.target.value; renderLibrary(); });
 $("#f-status").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
-  F.status = b.dataset.s; $$("#f-status button").forEach(x => x.setAttribute("aria-pressed", x === b)); renderHands();
+  F.status = b.dataset.s; $$("#f-status button").forEach(x => x.setAttribute("aria-pressed", x === b)); renderLibrary();
 });
 
 /* ---- plantão ---- */
 function renderPlantao() {
-  const open = S.hands.filter(h => h.plantao && !h.plantao_answer);
-  const done = S.hands.filter(h => h.plantao && h.plantao_answer).slice(0, 30);
+  const items = libraryItems().filter(({ d }) => d.plantao);
+  const open = items.filter(({ d }) => !d.plantao_answer), done = items.filter(({ d }) => d.plantao_answer).slice(0, 40);
   $("#pl-count").textContent = open.length ? `(${open.length})` : "";
-  $("#pl-open").innerHTML = open.length ? open.map(handCard).join("") : `<p class="empty" style="grid-column:1/-1">Nada pendente. Marque “Levar pro plantão” numa mão ou crie uma dúvida sem mão.</p>`;
-  $("#pl-done").innerHTML = done.length ? done.map(handCard).join("") : `<p class="empty" style="grid-column:1/-1">As respostas do coach vão aparecer aqui.</p>`;
+  $("#pl-open").innerHTML = open.length ? open.map(decCard).join("") : `<p class="empty" style="grid-column:1/-1">Nada pendente. Marque “Levar pro plantão” numa dúvida ou crie uma dúvida sem mão.</p>`;
+  $("#pl-done").innerHTML = done.length ? done.map(decCard).join("") : `<p class="empty" style="grid-column:1/-1">As respostas do coach vão aparecer aqui.</p>`;
 }
 
 /* ---- leaks ---- */
 function renderLeaks() {
   $("#leak-list").innerHTML = S.leaks.length ? S.leaks.map(l => {
-    const n = S.hands.filter(h => h.leak_id === l.id).length;
+    const n = S.decisions.filter(d => d.leak_id === l.id).length;
     return `<li class="${l.status === "corrigido" ? "fixed" : ""}" data-leak="${l.id}">
       <input type="checkbox" ${l.status === "corrigido" ? "checked" : ""} title="Marcar como corrigido" aria-label="Corrigido" style="width:18px;height:18px;accent-color:var(--accent)">
       <div style="min-width:0"><div class="t">${esc(l.title)}</div>${l.description ? `<div class="d">${esc(l.description)}</div>` : ""}</div>
-      <button class="cnt" type="button" data-leak-hands>${n} ${n === 1 ? "mão" : "mãos"}</button>
+      <button class="cnt" type="button" data-leak-hands>${n} ${n === 1 ? "dúvida" : "dúvidas"}</button>
       <button class="x" type="button" data-del-leak aria-label="Excluir">×</button></li>`;
   }).join("") : `<li style="display:block;border:0"><p class="empty">Nenhum leak anotado.</p></li>`;
 }
@@ -294,14 +314,31 @@ function armDelete(btn, label, onConfirm) {
 }
 $$("dialog [data-close]").forEach(b => b.addEventListener("click", () => b.closest("dialog").close()));
 
-/* ================= hand editor ================= */
-const H = { hand: null, pending: [], removed: [] }; // pending: [{blob, url}]
+/* ================= editor da mão ================= */
+// imgs: [{key, id?, path?, url, caption, origCaption, blob?, removed}]
+// decs: [{key, id?, imgKey, street, situation, question, tags, conclusion, status, plantao, plantao_answer, leak_id, ai, dirty}]
+const H = { hand: null, imgs: [], decs: [], removedDecIds: [], aiRuns: 0 };
 const dlgHand = $("#dlg-hand");
+let keySeq = 0;
+const newKey = () => "k" + (++keySeq);
+const visibleImgs = () => H.imgs.filter(i => !i.removed);
+
+function blankDec(extra = {}) {
+  return { key: newKey(), id: null, imgKey: null, street: null, situation: "", question: "", tags: [], conclusion: "", status: "rever", plantao: false, plantao_answer: "", leak_id: null, ai: false, dirty: false, ...extra };
+}
 
 function openHand(id, files = [], opts = {}) {
   const h = id ? S.hands.find(x => x.id === id) : null;
-  H.hand = h; H.pending = []; H.removed = [];
   aiSeq++; clearTimeout(aiTimer);
+  H.hand = h; H.removedDecIds = []; H.aiRuns = 0;
+  H.imgs = h ? imagesOf(h.id).map(i => ({ key: "s:" + i.id, id: i.id, path: i.path, url: S.urls.get(i.path) || "", caption: i.caption || "", origCaption: i.caption || "", removed: false })) : [];
+  H.decs = h ? decisionsOf(h.id).map(d => ({
+    key: newKey(), id: d.id, imgKey: d.image_id ? "s:" + d.image_id : null, street: d.street, situation: d.situation || "", question: d.question || "",
+    tags: [...(d.tags || [])], conclusion: d.conclusion || "", status: d.status === "revisada" ? "revisada" : "rever",
+    plantao: !!d.plantao, plantao_answer: d.plantao_answer || "", leak_id: d.leak_id, ai: false, dirty: false
+  })) : [];
+  if (opts.doubt) H.decs.push(blankDec({ plantao: true, dirty: true }));
+
   $("#h-head").textContent = h ? "Mão" : (opts.doubt ? "Nova dúvida" : "Nova mão");
   $("#h-date").value = h?.played_on || today();
   $("#h-site").value = h?.site || "";
@@ -311,29 +348,20 @@ function openHand(id, files = [], opts = {}) {
   $("#h-stack").value = h?.stack_bb ?? "";
   $("#h-board").value = h?.board || "";
   $("#h-sit").value = h?.situation || "";
-  $("#h-question").value = h?.question || "";
-  $("#h-conclusion").value = h?.conclusion || "";
-  $("#h-status").value = h?.status === "revisada" ? "revisada" : "rever";
-  $("#h-leak").innerHTML = `<option value="">Nenhum</option>` + S.leaks.map(l => `<option value="${l.id}">${esc(l.title)}</option>`).join("");
-  $("#h-leak").value = h?.leak_id || "";
-  $("#h-plantao").checked = h ? !!h.plantao : !!opts.doubt;
-  $("#h-pans").value = h?.plantao_answer || "";
-  $("#h-pans-wrap").hidden = !$("#h-plantao").checked;
-  const sel = new Set(h?.tags || []);
-  $("#h-tags").innerHTML = S.tags.length
-    ? S.tags.map(t => `<button type="button" aria-pressed="${sel.has(t.name)}">${esc(t.name)}</button>`).join("")
-    : `<span class="muted" style="font-size:.85rem">Nenhum spot cadastrado. Adicione em Ajustes.</span>`;
   $$("#f-hand .ai-filled").forEach(el => el.classList.remove("ai-filled"));
   $("#h-del").hidden = !h;
-  if (h) armDelete($("#h-del"), "Excluir", deleteHand);
-  aiMsg(aiOff ? "Leitura automática desativada (falta a chave da IA na Vercel)." : "Ao colar um print, a IA preenche os campos sozinha.", aiOff ? "warn" : "");
-  renderGallery();
+  if (h) armDelete($("#h-del"), "Excluir mão", deleteHand);
+  aiMsg(aiOff ? "Leitura automática desativada (falta a chave da IA na Vercel)." : "Cole os prints da mão e escreva uma legenda curta em cada um (ex.: “cbet 1/3 C. Lead?”). A IA lê tudo sozinha quando você parar de digitar.", aiOff ? "warn" : "");
+  renderGallery(); renderDecs();
   if (!dlgHand.open) dlgHand.showModal();
   if (files.length) addFiles(files);
-  else setTimeout(() => (h ? null : (opts.doubt ? $("#h-question") : $("#h-cards")))?.focus(), 50);
+  if (opts.focusDec) {
+    const i = H.decs.findIndex(d => d.id === opts.focusDec);
+    setTimeout(() => { const el = $$("#h-decs .dec")[i]; if (el) { el.scrollIntoView({ block: "center" }); el.classList.add("flash"); } }, 60);
+  } else if (opts.doubt) setTimeout(() => $("#h-decs textarea[data-f=question]")?.focus(), 60);
 }
 
-/* imagens: converte para JPEG (menor, mais rápido para enviar e para a IA ler) */
+/* ---- imagens ---- */
 async function compress(blob, max = 2000, quality = 0.9) {
   try {
     const bmp = await createImageBitmap(blob);
@@ -352,60 +380,180 @@ const toBase64 = blob => new Promise((ok, no) => {
 async function addFiles(files) {
   const imgs = [...files].filter(f => f && f.type && f.type.startsWith("image/"));
   if (!imgs.length) return;
-  for (const f of imgs) { const blob = await compress(f); H.pending.push({ blob, url: URL.createObjectURL(blob) }); }
-  renderGallery();
-  scheduleAI();
+  for (const f of imgs) {
+    const blob = await compress(f);
+    H.imgs.push({ key: newKey(), id: null, url: URL.createObjectURL(blob), blob, caption: "", origCaption: "", removed: false });
+  }
+  renderGallery(); renderDecs();
+  inputsChanged();
+  // foca a legenda do último print colado
+  setTimeout(() => { const caps = $$("#h-gallery input[data-cap]"); caps[caps.length - 1]?.focus(); }, 30);
 }
 function renderGallery() {
-  const saved = H.hand ? imagesOf(H.hand.id).filter(i => !H.removed.includes(i.id)) : [];
-  $("#h-gallery").innerHTML =
-    saved.map(i => `<div class="gimg"><img src="${esc(S.urls.get(i.path) || "")}" alt="Print" data-zoom><button type="button" class="rm" data-rm-saved="${i.id}" aria-label="Remover">✕</button></div>`).join("") +
-    H.pending.map((p, n) => `<div class="gimg"><img src="${p.url}" alt="Print novo" data-zoom><span class="new">novo</span><button type="button" class="rm" data-rm-pending="${n}" aria-label="Remover">✕</button></div>`).join("");
-  $("#h-ai-run").hidden = !(saved.length || H.pending.length);
+  const vis = visibleImgs();
+  $("#h-gallery").innerHTML = vis.map((im, n) => `
+    <div class="gcell">
+      <div class="gimg"><img src="${esc(im.url)}" alt="Print ${n + 1}" data-zoom>${im.id ? "" : `<span class="new">novo</span>`}<span class="idx">${n + 1}</span><button type="button" class="rm" data-rm-img="${im.key}" aria-label="Remover print ${n + 1}">✕</button></div>
+      <input type="text" data-cap="${im.key}" value="${esc(im.caption)}" placeholder="Legenda do print ${n + 1} (ex.: call?)" aria-label="Legenda do print ${n + 1}">
+    </div>`).join("");
+  $("#h-ai-run").hidden = !vis.length;
 }
+$("#h-gallery").addEventListener("input", e => {
+  const k = e.target.dataset.cap; if (!k) return;
+  const im = H.imgs.find(i => i.key === k); if (im) im.caption = e.target.value;
+  inputsChanged();
+});
+$("#h-gallery").addEventListener("click", e => {
+  const rm = e.target.closest("[data-rm-img]"), z = e.target.closest("[data-zoom]");
+  if (rm) {
+    const im = H.imgs.find(i => i.key === rm.dataset.rmImg); if (!im) return;
+    if (im.id) im.removed = true; else { URL.revokeObjectURL(im.url); H.imgs = H.imgs.filter(i => i !== im); }
+    H.decs.forEach(d => { if (d.imgKey === im.key) d.imgKey = null; });
+    renderGallery(); renderDecs(); inputsChanged();
+  } else if (z) { $("#viewer-img").src = z.src; $("#dlg-view").showModal(); }
+});
+
+/* ---- dúvidas ---- */
+function renderDecs() {
+  const vis = visibleImgs();
+  $("#h-dec-count").textContent = H.decs.length ? `(${H.decs.length})` : "";
+  if (!H.decs.length) {
+    $("#h-decs").innerHTML = `<p class="empty">${vis.length ? "A IA vai criar uma dúvida para cada print. Você também pode adicionar à mão em “+ Dúvida”." : "Nenhuma dúvida ainda."}</p>`;
+    return;
+  }
+  const leakOpts = sel => `<option value="">Nenhum</option>` + S.leaks.map(l => `<option value="${l.id}" ${sel === l.id ? "selected" : ""}>${esc(l.title)}</option>`).join("");
+  $("#h-decs").innerHTML = H.decs.map((d, n) => {
+    const im = vis.find(i => i.key === d.imgKey);
+    const printOpts = `<option value="">Sem print</option>` + vis.map((i, k) => `<option value="${i.key}" ${d.imgKey === i.key ? "selected" : ""}>Print ${k + 1}${i.caption ? " · " + esc(i.caption.slice(0, 28)) : ""}</option>`).join("");
+    const streetOpts = `<option value="">Street</option>` + Object.entries(STREETS).map(([v, l]) => `<option value="${v}" ${d.street === v ? "selected" : ""}>${l}</option>`).join("");
+    const sel = new Set(d.tags);
+    const tagBtns = S.tags.length ? S.tags.map(t => `<button type="button" data-tag="${esc(t.name)}" aria-pressed="${sel.has(t.name)}" class="${d.ai && !d.dirty && sel.has(t.name) ? "ai-filled" : ""}">${esc(t.name)}</button>`).join("") : `<span class="muted" style="font-size:.85rem">Cadastre spots em Ajustes.</span>`;
+    const aiCls = d.ai && !d.dirty ? "ai-filled" : "";
+    return `<div class="dec" data-k="${d.key}">
+      <div class="dleft">
+        <div class="dthumb">${im ? `<img src="${esc(im.url)}" alt="" data-zoom>` : "sem print"}</div>
+        <select data-f="imgKey" aria-label="Print da dúvida">${printOpts}</select>
+        <select data-f="street" aria-label="Street">${streetOpts}</select>
+      </div>
+      <div class="dright">
+        <div class="dtop"><b>Dúvida ${n + 1}</b>${d.ai && !d.dirty ? `<span class="tag" style="background:var(--violet-soft);color:var(--violet)">IA</span>` : ""}<button class="x" type="button" data-rm-dec aria-label="Remover dúvida ${n + 1}">×</button></div>
+        <label>Pergunta<textarea data-f="question" rows="2" class="${aiCls}" placeholder="Ex.: Lead no river depois de X/C no flop e no turn?">${esc(d.question)}</textarea></label>
+        <label>Momento<input type="text" data-f="situation" class="${aiCls}" value="${esc(d.situation)}" placeholder="Ex.: Turn, pote 15.6bb, vilão aposta 6.5bb"></label>
+        <div><div class="lbl">Spots</div><div class="tag-pick">${tagBtns}</div></div>
+        <label>Conclusão / o que o solver diz<textarea data-f="conclusion" rows="2" placeholder="Ex.: HRC prefere fold; AQ está no fundo do range de call">${esc(d.conclusion)}</textarea></label>
+        <div class="drow">
+          <label>Status<select data-f="status"><option value="rever" ${d.status !== "revisada" ? "selected" : ""}>Para rever</option><option value="revisada" ${d.status === "revisada" ? "selected" : ""}>Revisada</option></select></label>
+          <label>Leak<select data-f="leak_id">${leakOpts(d.leak_id)}</select></label>
+          <label class="check"><input type="checkbox" data-f="plantao" ${d.plantao ? "checked" : ""}> Plantão</label>
+        </div>
+        ${d.plantao ? `<label>Resposta do plantão<textarea data-f="plantao_answer" rows="2" placeholder="O que o coach respondeu">${esc(d.plantao_answer)}</textarea></label>` : ""}
+      </div>
+    </div>`;
+  }).join("");
+}
+const decOf = el => { const box = el.closest(".dec"); return box && H.decs.find(d => d.key === box.dataset.k); };
+$("#h-decs").addEventListener("input", e => {
+  const f = e.target.dataset.f, d = decOf(e.target); if (!f || !d) return;
+  if (e.target.type === "checkbox") return;
+  d[f] = e.target.value || (f === "imgKey" || f === "leak_id" || f === "street" ? null : "");
+  d.dirty = true; e.target.classList.remove("ai-filled");
+});
+$("#h-decs").addEventListener("change", e => {
+  const f = e.target.dataset.f, d = decOf(e.target); if (!f || !d) return;
+  if (e.target.type === "checkbox") d[f] = e.target.checked;
+  else d[f] = e.target.value || (f === "imgKey" || f === "leak_id" || f === "street" ? null : "");
+  d.dirty = true;
+  if (f === "plantao" || f === "imgKey") renderDecs();
+});
+$("#h-decs").addEventListener("click", e => {
+  const d = decOf(e.target); if (!d) return;
+  const tb = e.target.closest("[data-tag]");
+  if (tb) {
+    const t = tb.dataset.tag;
+    d.tags = d.tags.includes(t) ? d.tags.filter(x => x !== t) : [...d.tags, t];
+    d.dirty = true; tb.setAttribute("aria-pressed", d.tags.includes(t)); tb.classList.remove("ai-filled");
+    return;
+  }
+  if (e.target.closest("[data-rm-dec]")) {
+    if (d.id) H.removedDecIds.push(d.id);
+    H.decs = H.decs.filter(x => x !== d); renderDecs(); return;
+  }
+  const z = e.target.closest("[data-zoom]");
+  if (z) { $("#viewer-img").src = z.src; $("#dlg-view").showModal(); }
+});
+$("#h-dec-add").addEventListener("click", () => {
+  H.decs.push(blankDec({ dirty: true })); renderDecs();
+  setTimeout(() => { const qs = $$("#h-decs textarea[data-f=question]"); qs[qs.length - 1]?.focus(); }, 30);
+});
+
+$("#h-file").addEventListener("change", e => { const f = [...e.target.files]; e.target.value = ""; addFiles(f); });
+const drop = $("#h-drop");
+drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", e => { e.preventDefault(); e.stopPropagation(); drop.classList.remove("over"); addFiles(e.dataTransfer.files); });
+dlgHand.addEventListener("close", () => {
+  aiSeq++; clearTimeout(aiTimer);
+  H.imgs.forEach(i => { if (i.blob && !i.keepUrl) URL.revokeObjectURL(i.url); });
+  H.imgs = []; H.decs = [];
+});
+$("#f-hand").addEventListener("input", e => { if (!e.target.closest("#h-decs") && !e.target.dataset.cap) e.target.classList.remove("ai-filled"); });
+$("#f-hand").addEventListener("change", e => { if (!e.target.closest("#h-decs")) e.target.classList.remove("ai-filled"); });
 
 /* ================= leitura com IA ================= */
+// Lê sozinha uma vez, quando você para de colar/digitar por alguns segundos.
+// Depois disso, mudanças nos prints ou legendas só são relidas pelo botão (para não gastar à toa).
 let aiTimer, aiOff = false, aiSeq = 0;
-function aiMsg(text, cls = "") { const el = $("#h-ai-msg"); el.textContent = text; $("#h-ai").className = "ai-bar " + cls; }
-function scheduleAI() { if (aiOff) return; clearTimeout(aiTimer); aiTimer = setTimeout(() => runAI(false), 800); }
+const AI_IDLE_MS = 3500;
+function aiMsg(text, cls = "") { $("#h-ai-msg").textContent = text; $("#h-ai").className = "ai-bar " + cls; }
+function inputsChanged() {
+  if (aiOff || !visibleImgs().length) return;
+  if (H.aiRuns === 0 && !H.hand) {
+    clearTimeout(aiTimer);
+    aiMsg("A IA vai ler os prints assim que você parar de digitar…", "");
+    aiTimer = setTimeout(() => runAI(false), AI_IDLE_MS);
+  } else if (H.aiRuns > 0) {
+    aiMsg("Prints ou legendas mudaram. Clique em “Ler com IA” para atualizar.", "");
+  }
+}
 async function runAI(manual) {
+  clearTimeout(aiTimer);
   const seq = ++aiSeq;
-  const saved = H.hand ? imagesOf(H.hand.id).filter(i => !H.removed.includes(i.id)) : [];
-  if (!saved.length && !H.pending.length) { if (manual) aiMsg("Adicione um print primeiro."); return; }
-  aiMsg("Lendo o print com IA…", "busy"); $("#h-ai-run").disabled = true;
+  const vis = visibleImgs();
+  if (!vis.length) { if (manual) aiMsg("Adicione um print primeiro."); return; }
+  H.aiRuns++;
+  aiMsg(`Lendo ${vis.length} print${vis.length > 1 ? "s" : ""} com IA…`, "busy"); $("#h-ai-run").disabled = true;
   try {
     const blobs = [];
-    for (const i of saved) {
-      const u = S.urls.get(i.path);
-      if (u) { try { blobs.push(await compress(await (await fetch(u)).blob(), 1600, 0.85)); } catch { } }
+    for (const im of vis.slice(0, 8)) {
+      let b = im.blob;
+      if (!b && im.url) { try { b = await (await fetch(im.url)).blob(); } catch { b = null; } }
+      if (b) blobs.push(await compress(b, 1600, 0.85));
     }
-    for (const p of H.pending) blobs.push(await compress(p.blob, 1600, 0.85));
-    const images = await Promise.all(blobs.slice(0, 6).map(toBase64));
+    const images = await Promise.all(blobs.map(toBase64));
     const { data: { session } } = await sb.auth.getSession();
     const r = await fetch("/api/analyze", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer " + (session?.access_token || "") },
-      body: JSON.stringify({ images, tags: S.tags.map(t => t.name), sites: SITES, positions: POSITIONS, heroNicks: HERO_NICKS })
+      body: JSON.stringify({ images, captions: vis.slice(0, 8).map(i => i.caption || ""), tags: S.tags.map(t => t.name), sites: SITES, positions: POSITIONS, heroNicks: HERO_NICKS })
     });
     const j = await r.json().catch(() => ({}));
     if (seq !== aiSeq || !dlgHand.open) return;
     if (r.status === 503 && j.error === "missing_key") { aiOff = true; aiMsg("Leitura automática desativada (falta a chave da IA na Vercel).", "warn"); return; }
     if (r.status === 404) { aiMsg("A função de IA ainda não está publicada.", "warn"); return; }
     if (!r.ok) throw new Error(j.detail || j.error || "HTTP " + r.status);
-    applyAI(j);
+    applyAI(j, vis);
   } catch (e) {
-    if (seq === aiSeq) aiMsg("Não deu para ler o print: " + (e.message || e), "warn");
+    if (seq === aiSeq) aiMsg("Não deu para ler os prints: " + (e.message || e), "warn");
   } finally {
     if (seq === aiSeq) $("#h-ai-run").disabled = false;
   }
 }
-function applyAI(a) {
+function applyAI(a, vis) {
   let n = 0;
   const put = (sel, val) => {
     const el = $(sel);
-    // preenche campos vazios ou que ainda estão como a IA deixou (não mexe no que você editou)
     if (val === null || val === undefined || String(val).trim() === "") return;
-    if (el.value.trim() && !el.classList.contains("ai-filled")) return;
+    if (el.value.trim() && !el.classList.contains("ai-filled")) return; // não mexe no que você editou
     el.value = String(val); el.classList.add("ai-filled"); n++;
   };
   if (a.site && SITES.includes(a.site)) put("#h-site", a.site);
@@ -414,50 +562,39 @@ function applyAI(a) {
   if (a.position && POSITIONS.includes(a.position)) put("#h-pos", a.position);
   if (typeof a.stack_bb === "number") put("#h-stack", Math.round(a.stack_bb * 10) / 10);
   put("#h-board", a.board);
-  put("#h-sit", a.situation);
-  put("#h-question", a.question_suggestion);
-  const want = new Set(Array.isArray(a.tags) ? a.tags : []);
-  $$("#h-tags button").forEach(b => {
-    if (b.classList.contains("ai-filled") && !want.has(b.textContent)) { b.setAttribute("aria-pressed", "false"); b.classList.remove("ai-filled"); }
-    if (want.has(b.textContent) && b.getAttribute("aria-pressed") !== "true") { b.setAttribute("aria-pressed", "true"); b.classList.add("ai-filled"); n++; }
-  });
-  aiMsg(n ? "Preenchido pela IA. Confira os campos destacados antes de salvar." : "A IA não encontrou nada novo para preencher.", "ok");
+  put("#h-sit", a.summary);
+
+  // troca as dúvidas que a IA criou antes (e que você não mexeu) pelas novas
+  H.decs = H.decs.filter(d => !(d.ai && !d.dirty));
+  const taken = new Set(H.decs.filter(d => d.imgKey).map(d => d.imgKey));
+  const tagNames = new Set(S.tags.map(t => t.name));
+  let added = 0;
+  for (const x of (a.decisions || [])) {
+    const imgKey = x.print ? vis[x.print - 1]?.key || null : null;
+    if (imgKey && taken.has(imgKey)) continue; // você já tem uma dúvida sua nesse print
+    H.decs.push(blankDec({ imgKey, street: x.street, situation: x.situation || "", question: x.question || "", tags: (x.tags || []).filter(t => tagNames.has(t)), ai: true }));
+    added++;
+  }
+  // mantém a ordem dos prints
+  const pos = new Map(vis.map((i, k) => [i.key, k]));
+  H.decs.sort((p, q2) => (pos.has(p.imgKey) ? pos.get(p.imgKey) : 99) - (pos.has(q2.imgKey) ? pos.get(q2.imgKey) : 99));
+  renderDecs();
+  aiMsg(n || added ? `Preenchido pela IA: ${added} dúvida${added === 1 ? "" : "s"}. Confira os campos em roxo antes de salvar.` : "A IA não encontrou nada novo para preencher.", "ok");
 }
 $("#h-ai-run").addEventListener("click", () => { aiOff = false; runAI(true); });
-$("#f-hand").addEventListener("input", e => e.target.classList.remove("ai-filled"));
-$("#f-hand").addEventListener("change", e => e.target.classList.remove("ai-filled"));
 
-$("#h-gallery").addEventListener("click", e => {
-  const rs = e.target.closest("[data-rm-saved]"), rp = e.target.closest("[data-rm-pending]"), z = e.target.closest("[data-zoom]");
-  if (rs) { H.removed.push(rs.dataset.rmSaved); renderGallery(); }
-  else if (rp) { const [p] = H.pending.splice(+rp.dataset.rmPending, 1); URL.revokeObjectURL(p.url); renderGallery(); }
-  else if (z) { $("#viewer-img").src = z.src; $("#dlg-view").showModal(); }
-});
-$("#h-tags").addEventListener("click", e => {
-  const b = e.target.closest("button"); if (!b) return;
-  b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"); b.classList.remove("ai-filled");
-});
-$("#h-plantao").addEventListener("change", e => { $("#h-pans-wrap").hidden = !e.target.checked; });
-$("#h-file").addEventListener("change", e => { const f = [...e.target.files]; e.target.value = ""; addFiles(f); });
-const drop = $("#h-drop");
-drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
-drop.addEventListener("dragleave", () => drop.classList.remove("over"));
-drop.addEventListener("drop", e => { e.preventDefault(); e.stopPropagation(); drop.classList.remove("over"); addFiles(e.dataTransfer.files); });
-dlgHand.addEventListener("close", () => { aiSeq++; clearTimeout(aiTimer); H.pending.forEach(p => URL.revokeObjectURL(p.url)); H.pending = []; });
-
+/* ---- salvar ---- */
 $("#f-hand").addEventListener("submit", async e => {
   e.preventDefault();
   const btn = $("#h-save"); btn.disabled = true; btn.textContent = "Salvando…";
   const stack = $("#h-stack").value;
-  const plantao = $("#h-plantao").checked;
+  const decs = H.decs.length ? H.decs : [blankDec()];
   const row = {
     played_on: $("#h-date").value || null, site: $("#h-site").value || null, tournament: $("#h-tour").value.trim() || null,
     hero_cards: $("#h-cards").value.trim() || null, position: $("#h-pos").value || null, stack_bb: stack === "" ? null : +stack,
     board: $("#h-board").value.trim() || null, situation: $("#h-sit").value.trim() || null,
-    tags: $$("#h-tags button[aria-pressed=true]").map(b => b.textContent),
-    question: $("#h-question").value.trim() || null, conclusion: $("#h-conclusion").value.trim() || null,
-    status: $("#h-status").value, leak_id: $("#h-leak").value || null,
-    plantao, plantao_answer: plantao ? ($("#h-pans").value.trim() || null) : null
+    status: decs.every(d => d.status === "revisada") ? "revisada" : "rever",
+    plantao: decs.some(d => d.plantao)
   };
   try {
     let hand;
@@ -468,28 +605,54 @@ $("#f-hand").addEventListener("submit", async e => {
       hand = await q(sb.from("hands").insert(row).select().single(), "criar a mão");
       S.hands.unshift(hand);
     }
-    // remover prints apagados
-    if (H.removed.length) {
-      const gone = S.images.filter(i => H.removed.includes(i.id));
-      await q(sb.from("hand_images").delete().in("id", H.removed), "remover prints");
-      await sb.storage.from("hands").remove(gone.map(i => i.path));
-      S.images = S.images.filter(i => !H.removed.includes(i.id));
+
+    // prints: remover, atualizar legenda/ordem, enviar novos
+    const removed = H.imgs.filter(i => i.removed && i.id);
+    if (removed.length) {
+      await q(sb.from("hand_images").delete().in("id", removed.map(i => i.id)), "remover prints");
+      await sb.storage.from("hands").remove(removed.map(i => i.path));
     }
-    // enviar prints novos
-    let sort = imagesOf(hand.id).reduce((m, i) => Math.max(m, i.sort), -1) + 1;
-    for (const p of H.pending) {
-      const type = p.blob.type || "image/jpeg";
-      const ext = (type.split("/")[1] || "jpg").replace("jpeg", "jpg");
-      const path = `${S.user.id}/${hand.id}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
-      const { error } = await sb.storage.from("hands").upload(path, p.blob, { contentType: type, upsert: false });
-      if (error) { fail(error, "enviar um print"); continue; }
-      const img = await q(sb.from("hand_images").insert({ hand_id: hand.id, path, sort: sort++ }).select().single(), "registrar o print");
-      S.images.push(img);
-      S.urls.set(path, p.url); // usa a prévia local até recarregar
+    const keyToId = {};
+    const vis = visibleImgs();
+    for (let k = 0; k < vis.length; k++) {
+      const im = vis[k];
+      if (im.id) {
+        keyToId[im.key] = im.id;
+        const orig = S.images.find(x => x.id === im.id);
+        if ((im.caption || "") !== (im.origCaption || "") || orig?.sort !== k) {
+          await q(sb.from("hand_images").update({ caption: im.caption.trim() || null, sort: k }).eq("id", im.id), "salvar a legenda");
+        }
+      } else {
+        const path = `${S.user.id}/${hand.id}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.jpg`;
+        const { error } = await sb.storage.from("hands").upload(path, im.blob, { contentType: im.blob.type || "image/jpeg", upsert: false });
+        if (error) { fail(error, "enviar um print"); continue; }
+        const saved = await q(sb.from("hand_images").insert({ hand_id: hand.id, path, sort: k, caption: im.caption.trim() || null }).select().single(), "registrar o print");
+        keyToId[im.key] = saved.id;
+        S.urls.set(path, im.url); im.keepUrl = true; // usa a prévia local até recarregar
+      }
     }
-    H.pending = []; // não revogar as URLs usadas como prévia
+
+    // dúvidas
+    if (H.removedDecIds.length) await q(sb.from("decisions").delete().in("id", H.removedDecIds), "remover dúvidas");
+    const rows = decs.map((d, k) => ({
+      id: d.id || uuid(), user_id: S.user.id, hand_id: hand.id, image_id: (d.imgKey && keyToId[d.imgKey]) || null, sort: k,
+      street: d.street || null, situation: (d.situation || "").trim() || null, question: (d.question || "").trim() || null,
+      tags: d.tags || [], conclusion: (d.conclusion || "").trim() || null, status: d.status === "revisada" ? "revisada" : "rever",
+      plantao: !!d.plantao, plantao_answer: d.plantao ? ((d.plantao_answer || "").trim() || null) : null, leak_id: d.leak_id || null
+    }));
+    await q(sb.from("decisions").upsert(rows), "salvar as dúvidas");
+
+    // recarrega só o que é desta mão
+    const [imgs, ds] = await Promise.all([
+      q(sb.from("hand_images").select("*").eq("hand_id", hand.id), "recarregar os prints"),
+      q(sb.from("decisions").select("*").eq("hand_id", hand.id), "recarregar as dúvidas")
+    ]);
+    S.images = S.images.filter(i => i.hand_id !== hand.id).concat(imgs);
+    S.decisions = S.decisions.filter(d => d.hand_id !== hand.id).concat(ds);
+    await signImages(imgs.map(i => i.path));
+
     dlgHand.close();
-    toast("Mão salva");
+    toast(`Mão salva com ${ds.length} dúvida${ds.length === 1 ? "" : "s"}`);
     renderAll();
   } catch { /* já avisado */ }
   finally { btn.disabled = false; btn.textContent = "Salvar"; }
@@ -503,11 +666,12 @@ async function deleteHand() {
     await q(sb.from("hands").delete().eq("id", h.id), "excluir a mão");
     S.hands = S.hands.filter(x => x.id !== h.id);
     S.images = S.images.filter(i => i.hand_id !== h.id);
+    S.decisions = S.decisions.filter(d => d.hand_id !== h.id);
     dlgHand.close(); toast("Mão excluída"); renderAll();
   } catch { /* já avisado */ }
 }
 
-/* ================= paste & drag anywhere ================= */
+/* ================= colar e arrastar em qualquer tela ================= */
 document.addEventListener("paste", e => {
   if ($("#app").hidden) return;
   const files = [...(e.clipboardData?.items || [])].filter(i => i.kind === "file" && i.type.startsWith("image/")).map(i => i.getAsFile()).filter(Boolean);
@@ -529,7 +693,7 @@ document.addEventListener("drop", e => {
   if (dlgHand.open) addFiles(files); else openHand(null, files);
 });
 
-/* ================= events (agenda) ================= */
+/* ================= agenda ================= */
 let editEv = null;
 function openEvent(id, day) {
   const e = id ? S.events.find(x => x.id === id) : null; editEv = e;
@@ -556,12 +720,13 @@ $("#f-event").addEventListener("submit", async ev => {
   } catch { }
 });
 
-/* ================= clicks ================= */
+/* ================= cliques ================= */
 document.addEventListener("click", async e => {
   const t = e.target;
+  if (t.closest("dialog")) return;
   const ne = t.closest("[data-new-event]"); if (ne) { openEvent(null, ne.dataset.newEvent === "today" ? today() : ne.dataset.newEvent); return; }
   const ev = t.closest("[data-ev]"); if (ev) { openEvent(ev.dataset.ev); return; }
-  const hd = t.closest("[data-hand]"); if (hd) { openHand(hd.dataset.hand); return; }
+  const hd = t.closest("[data-hand]"); if (hd) { openHand(hd.dataset.hand, [], { focusDec: hd.dataset.dec || null }); return; }
 
   const tk = t.closest("[data-task]");
   if (tk) {
@@ -592,10 +757,10 @@ document.addEventListener("click", async e => {
     const l = S.leaks.find(x => x.id === lk.dataset.leak); if (!l) return;
     if (t.closest("[data-leak-hands]")) {
       F.leak = l.id; F.status = "todas"; $$("#f-status button").forEach(x => x.setAttribute("aria-pressed", x.dataset.s === "todas"));
-      location.hash = "maos"; renderHands(); return;
+      location.hash = "maos"; return;
     }
     try {
-      if (t.closest("[data-del-leak]")) { await q(sb.from("leaks").delete().eq("id", l.id), "excluir o leak"); S.leaks = S.leaks.filter(x => x.id !== l.id); S.hands.forEach(h => { if (h.leak_id === l.id) h.leak_id = null; }); }
+      if (t.closest("[data-del-leak]")) { await q(sb.from("leaks").delete().eq("id", l.id), "excluir o leak"); S.leaks = S.leaks.filter(x => x.id !== l.id); S.decisions.forEach(d => { if (d.leak_id === l.id) d.leak_id = null; }); }
       else if (t.matches("input[type=checkbox]")) { const r = await q(sb.from("leaks").update({ status: l.status === "corrigido" ? "ativo" : "corrigido" }).eq("id", l.id).select().single(), "atualizar o leak"); S.leaks = S.leaks.map(x => x.id === r.id ? r : x); }
       else return;
       renderAll();
@@ -608,7 +773,7 @@ document.addEventListener("click", async e => {
   }
 });
 
-/* ================= forms ================= */
+/* ================= formulários ================= */
 $("#task-form").addEventListener("submit", async e => {
   e.preventDefault();
   const text = $("#task-text").value.trim(); if (!text) return;
