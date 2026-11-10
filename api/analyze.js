@@ -46,7 +46,7 @@ function prompt({ sites, positions, tags, heroNicks, captions }) {
   const legendas = captions.map((c, i) => `Print ${i + 1}: ${c ? `"${c}"` : "(sem legenda)"}`).join("\n");
   return `Você recebe ${captions.length} print(s) de UMA mão de poker online, em ordem cronológica, cada um com uma legenda opcional escrita pelo hero.
 As legendas são anotações rápidas de jogador: contam o que aconteceu entre um print e outro e trazem as dúvidas.
-Leia os prints e as legendas juntos, reconstrua a história da mão e registre tudo com a ferramenta registrar_mao.
+Leia os prints e as legendas juntos, reconstrua a história da mão e registre tudo chamando a ferramenta registrar_mao. Responda SOMENTE chamando a ferramenta, sem texto antes ou depois.
 
 Legendas:
 ${legendas}
@@ -115,13 +115,20 @@ module.exports = async (req, res) => {
         model: MODEL,
         max_tokens: 2500,
         tools: [TOOL],
-        tool_choice: { type: "tool", name: "registrar_mao" },
+        // alguns modelos novos não aceitam forçar a ferramenta; pedimos no texto e lemos JSON como plano B
+        tool_choice: { type: "auto" },
         messages: [{ role: "user", content }]
       })
     });
     const j = await r.json();
     if (!r.ok) return res.status(502).json({ error: "ai_error", detail: j?.error?.message || `HTTP ${r.status}` });
-    const out = (j.content || []).find(c => c.type === "tool_use")?.input || {};
+    let out = (j.content || []).find(c => c.type === "tool_use")?.input;
+    if (!out) {
+      const text = (j.content || []).filter(c => c.type === "text").map(c => c.text).join("\n");
+      const m = text.match(/\{[\s\S]*\}/);
+      try { out = m ? JSON.parse(m[0]) : null; } catch { out = null; }
+    }
+    if (!out) return res.status(502).json({ error: "ai_error", detail: "a IA respondeu sem os dados da mão; tente de novo" });
     // limpa o que vier fora das listas
     if (out.site && !ctx.sites.includes(out.site)) out.site = null;
     if (out.position && !ctx.positions.includes(out.position)) out.position = null;
