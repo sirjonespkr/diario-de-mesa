@@ -210,6 +210,17 @@ dialog form{padding:20px 22px;display:flex;flex-direction:column;gap:14px}
 .tag-admin{display:flex;flex-wrap:wrap;gap:8px}
 .tag-admin span{display:inline-flex;align-items:center;gap:4px;background:var(--surface-2);border:1px solid var(--line-2);border-radius:999px;padding:3px 4px 3px 11px;font-size:.84rem}
 
+/* IA */
+.ai-bar{display:flex;align-items:center;gap:10px;font-size:.84rem;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px 8px 12px}
+.ai-bar #h-ai-msg{flex:1;min-width:0}
+.ai-dot{width:8px;height:8px;border-radius:50%;background:var(--violet);flex:none}
+.ai-bar.busy .ai-dot{animation:pulse 1s ease-in-out infinite}
+.ai-bar.ok{color:var(--ink)} .ai-bar.ok .ai-dot{background:var(--accent)}
+.ai-bar.warn{color:var(--gold)} .ai-bar.warn .ai-dot{background:var(--gold)}
+@keyframes pulse{50%{opacity:.25}}
+.ai-filled{border-color:var(--violet)!important;box-shadow:0 0 0 1px var(--violet)}
+.tag-pick button.ai-filled{background:var(--violet-soft);color:var(--violet)}
+
 /* toast */
 .toast{position:fixed;left:50%;bottom:max(20px,env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:.88rem;z-index:100;box-shadow:0 8px 30px rgba(0,0,0,.4);max-width:calc(100vw - 32px)}
 .toast.err{background:var(--red);color:#fff}

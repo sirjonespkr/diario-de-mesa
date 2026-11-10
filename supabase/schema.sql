@@ -36,6 +36,7 @@ create table if not exists hands (
   position text,
   stack_bb numeric,
   board text,
+  situation text,
   tags text[] not null default '{}',
   question text,
   conclusion text,

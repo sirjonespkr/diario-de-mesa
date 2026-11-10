@@ -181,6 +181,7 @@
       <input type="file" id="h-file" accept="image/*" multiple hidden>
       <span>Cole (<kbd>Ctrl</kbd>+<kbd>V</kbd>), arraste ou <u>escolha prints</u>. Um por street, se quiser.</span>
     </label>
+    <div class="ai-bar" id="h-ai"><span class="ai-dot"></span><span id="h-ai-msg">Ao colar um print, a IA preenche os campos sozinha.</span><button class="btn sm" type="button" id="h-ai-run" hidden>Ler prints com IA</button></div>
     <div class="f4">
       <label>Data<input type="date" id="h-date"></label>
       <label>Sala<select id="h-site"><option value="">—</option></select></label>
@@ -192,6 +193,7 @@
       <label>Stack (BB)<input type="number" id="h-stack" step="0.1" min="0" inputmode="decimal"></label>
       <label>Board<input type="text" id="h-board" placeholder="9♣ 9♥ J♠ T♥ T♦"></label>
     </div>
+    <label>Situação<textarea id="h-sit" rows="2" placeholder="Ex.: SRP, hero CO 38bb vs BTN, river, vilão aposta 6.5bb no pote de 15.6bb"></textarea></label>
     <div><div class="lbl">Spots</div><div class="tag-pick" id="h-tags"></div></div>
     <label>Dúvida<textarea id="h-question" placeholder="Ex.: call no turn? lead no river?"></textarea></label>
     <label>Conclusão / o que o solver diz<textarea id="h-conclusion" placeholder="Ex.: HRC prefere fold; AQ está no fundo do range de call"></textarea></label>

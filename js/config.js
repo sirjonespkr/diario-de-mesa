@@ -10,3 +10,6 @@ export const DEFAULT_TAGS = [
   "call vs barril turn/river", "iso", "3bet", "4bet / squeeze", "lead", "3-barril",
   "cbet size alto BW", "bluff catch", "push/fold", "ICM / HRC", "equilab", "random"
 ];
+
+// Seus nicks nas salas: ajudam a IA a saber quem é você na mesa.
+export const HERO_NICKS = ["sluizg"];

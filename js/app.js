@@ -1,4 +1,4 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY, SITES, POSITIONS, DEFAULT_TAGS } from "./config.js";
+import { SUPABASE_URL, SUPABASE_ANON_KEY, SITES, POSITIONS, DEFAULT_TAGS, HERO_NICKS } from "./config.js";
 
 /* ================= helpers ================= */
 const $ = s => document.querySelector(s);
@@ -50,7 +50,11 @@ async function loadAll() {
   ]);
   Object.assign(S, { hands, images, events, tasks, pregrind, leaks, tags });
   if (!tags.length) {
-    S.tags = await q(sb.from("tags").insert(DEFAULT_TAGS.map((name, i) => ({ name, sort: i }))).select(), "criar os spots padrão");
+    // upsert ignorando duplicados: seguro mesmo se duas abas tentarem criar ao mesmo tempo
+    const rows = DEFAULT_TAGS.map((name, i) => ({ user_id: S.user.id, name, sort: i }));
+    const { error } = await sb.from("tags").upsert(rows, { onConflict: "user_id,name", ignoreDuplicates: true });
+    if (error) console.error(error);
+    S.tags = await q(sb.from("tags").select("*").order("sort"), "carregar os spots");
   }
   await signImages(images.map(i => i.path));
 }
@@ -230,7 +234,7 @@ function renderHands() {
     if (F.site && h.site !== F.site) return false;
     if (F.leak && h.leak_id !== F.leak) return false;
     if (words.length) {
-      const hay = [h.tournament, h.question, h.conclusion, h.hero_cards, h.board, h.site, h.position, ...(h.tags || [])].join(" ").toLowerCase();
+      const hay = [h.tournament, h.situation, h.question, h.conclusion, h.hero_cards, h.board, h.site, h.position, ...(h.tags || [])].join(" ").toLowerCase();
       if (!words.every(w => hay.includes(w))) return false;
     }
     return true;
@@ -291,20 +295,22 @@ function armDelete(btn, label, onConfirm) {
 $$("dialog [data-close]").forEach(b => b.addEventListener("click", () => b.closest("dialog").close()));
 
 /* ================= hand editor ================= */
-const H = { hand: null, pending: [], removed: [] }; // pending: [{file, url}]
+const H = { hand: null, pending: [], removed: [] }; // pending: [{blob, url}]
 const dlgHand = $("#dlg-hand");
 
 function openHand(id, files = [], opts = {}) {
   const h = id ? S.hands.find(x => x.id === id) : null;
   H.hand = h; H.pending = []; H.removed = [];
+  aiSeq++; clearTimeout(aiTimer);
   $("#h-head").textContent = h ? "Mão" : (opts.doubt ? "Nova dúvida" : "Nova mão");
   $("#h-date").value = h?.played_on || today();
-  $("#h-site").value = h?.site || (h ? "" : (S.hands[0]?.site || ""));
+  $("#h-site").value = h?.site || "";
   $("#h-tour").value = h?.tournament || "";
   $("#h-cards").value = h?.hero_cards || "";
   $("#h-pos").value = h?.position || "";
   $("#h-stack").value = h?.stack_bb ?? "";
   $("#h-board").value = h?.board || "";
+  $("#h-sit").value = h?.situation || "";
   $("#h-question").value = h?.question || "";
   $("#h-conclusion").value = h?.conclusion || "";
   $("#h-status").value = h?.status === "revisada" ? "revisada" : "rever";
@@ -314,24 +320,110 @@ function openHand(id, files = [], opts = {}) {
   $("#h-pans").value = h?.plantao_answer || "";
   $("#h-pans-wrap").hidden = !$("#h-plantao").checked;
   const sel = new Set(h?.tags || []);
-  $("#h-tags").innerHTML = S.tags.map(t => `<button type="button" aria-pressed="${sel.has(t.name)}">${esc(t.name)}</button>`).join("");
+  $("#h-tags").innerHTML = S.tags.length
+    ? S.tags.map(t => `<button type="button" aria-pressed="${sel.has(t.name)}">${esc(t.name)}</button>`).join("")
+    : `<span class="muted" style="font-size:.85rem">Nenhum spot cadastrado. Adicione em Ajustes.</span>`;
+  $$("#f-hand .ai-filled").forEach(el => el.classList.remove("ai-filled"));
   $("#h-del").hidden = !h;
   if (h) armDelete($("#h-del"), "Excluir", deleteHand);
-  files.forEach(addPending);
+  aiMsg(aiOff ? "Leitura automática desativada (falta a chave da IA na Vercel)." : "Ao colar um print, a IA preenche os campos sozinha.", aiOff ? "warn" : "");
   renderGallery();
   if (!dlgHand.open) dlgHand.showModal();
-  setTimeout(() => (h ? null : (opts.doubt ? $("#h-question") : $("#h-cards")))?.focus(), 50);
+  if (files.length) addFiles(files);
+  else setTimeout(() => (h ? null : (opts.doubt ? $("#h-question") : $("#h-cards")))?.focus(), 50);
 }
-function addPending(file) {
-  if (!file || !file.type.startsWith("image/")) return;
-  H.pending.push({ file, url: URL.createObjectURL(file) });
+
+/* imagens: converte para JPEG (menor, mais rápido para enviar e para a IA ler) */
+async function compress(blob, max = 2000, quality = 0.9) {
+  try {
+    const bmp = await createImageBitmap(blob);
+    const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    if (bmp.close) bmp.close();
+    const out = await new Promise(r => c.toBlob(r, "image/jpeg", quality));
+    return out || blob;
+  } catch { return blob; }
+}
+const toBase64 = blob => new Promise((ok, no) => {
+  const r = new FileReader(); r.onload = () => ok(String(r.result).split(",")[1]); r.onerror = no; r.readAsDataURL(blob);
+});
+async function addFiles(files) {
+  const imgs = [...files].filter(f => f && f.type && f.type.startsWith("image/"));
+  if (!imgs.length) return;
+  for (const f of imgs) { const blob = await compress(f); H.pending.push({ blob, url: URL.createObjectURL(blob) }); }
+  renderGallery();
+  scheduleAI();
 }
 function renderGallery() {
   const saved = H.hand ? imagesOf(H.hand.id).filter(i => !H.removed.includes(i.id)) : [];
   $("#h-gallery").innerHTML =
     saved.map(i => `<div class="gimg"><img src="${esc(S.urls.get(i.path) || "")}" alt="Print" data-zoom><button type="button" class="rm" data-rm-saved="${i.id}" aria-label="Remover">✕</button></div>`).join("") +
     H.pending.map((p, n) => `<div class="gimg"><img src="${p.url}" alt="Print novo" data-zoom><span class="new">novo</span><button type="button" class="rm" data-rm-pending="${n}" aria-label="Remover">✕</button></div>`).join("");
+  $("#h-ai-run").hidden = !(saved.length || H.pending.length);
 }
+
+/* ================= leitura com IA ================= */
+let aiTimer, aiOff = false, aiSeq = 0;
+function aiMsg(text, cls = "") { const el = $("#h-ai-msg"); el.textContent = text; $("#h-ai").className = "ai-bar " + cls; }
+function scheduleAI() { if (aiOff) return; clearTimeout(aiTimer); aiTimer = setTimeout(() => runAI(false), 800); }
+async function runAI(manual) {
+  const seq = ++aiSeq;
+  const saved = H.hand ? imagesOf(H.hand.id).filter(i => !H.removed.includes(i.id)) : [];
+  if (!saved.length && !H.pending.length) { if (manual) aiMsg("Adicione um print primeiro."); return; }
+  aiMsg("Lendo o print com IA…", "busy"); $("#h-ai-run").disabled = true;
+  try {
+    const blobs = [];
+    for (const i of saved) {
+      const u = S.urls.get(i.path);
+      if (u) { try { blobs.push(await compress(await (await fetch(u)).blob(), 1600, 0.85)); } catch { } }
+    }
+    for (const p of H.pending) blobs.push(await compress(p.blob, 1600, 0.85));
+    const images = await Promise.all(blobs.slice(0, 6).map(toBase64));
+    const { data: { session } } = await sb.auth.getSession();
+    const r = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer " + (session?.access_token || "") },
+      body: JSON.stringify({ images, tags: S.tags.map(t => t.name), sites: SITES, positions: POSITIONS, heroNicks: HERO_NICKS })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (seq !== aiSeq || !dlgHand.open) return;
+    if (r.status === 503 && j.error === "missing_key") { aiOff = true; aiMsg("Leitura automática desativada (falta a chave da IA na Vercel).", "warn"); return; }
+    if (r.status === 404) { aiMsg("A função de IA ainda não está publicada.", "warn"); return; }
+    if (!r.ok) throw new Error(j.detail || j.error || "HTTP " + r.status);
+    applyAI(j);
+  } catch (e) {
+    if (seq === aiSeq) aiMsg("Não deu para ler o print: " + (e.message || e), "warn");
+  } finally {
+    if (seq === aiSeq) $("#h-ai-run").disabled = false;
+  }
+}
+function applyAI(a) {
+  let n = 0;
+  const put = (sel, val) => {
+    const el = $(sel);
+    if (val === null || val === undefined || String(val).trim() === "" || el.value.trim()) return;
+    el.value = String(val); el.classList.add("ai-filled"); n++;
+  };
+  if (a.site && SITES.includes(a.site)) put("#h-site", a.site);
+  put("#h-tour", a.tournament);
+  put("#h-cards", [a.hero_combo, a.hero_exact].filter(Boolean).join(" · "));
+  if (a.position && POSITIONS.includes(a.position)) put("#h-pos", a.position);
+  if (typeof a.stack_bb === "number") put("#h-stack", Math.round(a.stack_bb * 10) / 10);
+  put("#h-board", a.board);
+  put("#h-sit", a.situation);
+  put("#h-question", a.question_suggestion);
+  const want = new Set(Array.isArray(a.tags) ? a.tags : []);
+  $$("#h-tags button").forEach(b => {
+    if (want.has(b.textContent) && b.getAttribute("aria-pressed") !== "true") { b.setAttribute("aria-pressed", "true"); b.classList.add("ai-filled"); n++; }
+  });
+  aiMsg(n ? "Preenchido pela IA. Confira os campos destacados antes de salvar." : "A IA não encontrou nada novo para preencher.", "ok");
+}
+$("#h-ai-run").addEventListener("click", () => { aiOff = false; runAI(true); });
+$("#f-hand").addEventListener("input", e => e.target.classList.remove("ai-filled"));
+$("#f-hand").addEventListener("change", e => e.target.classList.remove("ai-filled"));
+
 $("#h-gallery").addEventListener("click", e => {
   const rs = e.target.closest("[data-rm-saved]"), rp = e.target.closest("[data-rm-pending]"), z = e.target.closest("[data-zoom]");
   if (rs) { H.removed.push(rs.dataset.rmSaved); renderGallery(); }
@@ -339,15 +431,16 @@ $("#h-gallery").addEventListener("click", e => {
   else if (z) { $("#viewer-img").src = z.src; $("#dlg-view").showModal(); }
 });
 $("#h-tags").addEventListener("click", e => {
-  const b = e.target.closest("button"); if (b) b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true");
+  const b = e.target.closest("button"); if (!b) return;
+  b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"); b.classList.remove("ai-filled");
 });
 $("#h-plantao").addEventListener("change", e => { $("#h-pans-wrap").hidden = !e.target.checked; });
-$("#h-file").addEventListener("change", e => { [...e.target.files].forEach(addPending); e.target.value = ""; renderGallery(); });
+$("#h-file").addEventListener("change", e => { const f = [...e.target.files]; e.target.value = ""; addFiles(f); });
 const drop = $("#h-drop");
 drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
 drop.addEventListener("dragleave", () => drop.classList.remove("over"));
-drop.addEventListener("drop", e => { e.preventDefault(); e.stopPropagation(); drop.classList.remove("over"); [...e.dataTransfer.files].forEach(addPending); renderGallery(); });
-dlgHand.addEventListener("close", () => { H.pending.forEach(p => URL.revokeObjectURL(p.url)); H.pending = []; });
+drop.addEventListener("drop", e => { e.preventDefault(); e.stopPropagation(); drop.classList.remove("over"); addFiles(e.dataTransfer.files); });
+dlgHand.addEventListener("close", () => { aiSeq++; clearTimeout(aiTimer); H.pending.forEach(p => URL.revokeObjectURL(p.url)); H.pending = []; });
 
 $("#f-hand").addEventListener("submit", async e => {
   e.preventDefault();
@@ -357,7 +450,7 @@ $("#f-hand").addEventListener("submit", async e => {
   const row = {
     played_on: $("#h-date").value || null, site: $("#h-site").value || null, tournament: $("#h-tour").value.trim() || null,
     hero_cards: $("#h-cards").value.trim() || null, position: $("#h-pos").value || null, stack_bb: stack === "" ? null : +stack,
-    board: $("#h-board").value.trim() || null,
+    board: $("#h-board").value.trim() || null, situation: $("#h-sit").value.trim() || null,
     tags: $$("#h-tags button[aria-pressed=true]").map(b => b.textContent),
     question: $("#h-question").value.trim() || null, conclusion: $("#h-conclusion").value.trim() || null,
     status: $("#h-status").value, leak_id: $("#h-leak").value || null,
@@ -382,9 +475,10 @@ $("#f-hand").addEventListener("submit", async e => {
     // enviar prints novos
     let sort = imagesOf(hand.id).reduce((m, i) => Math.max(m, i.sort), -1) + 1;
     for (const p of H.pending) {
-      const ext = (p.file.type.split("/")[1] || "png").replace("jpeg", "jpg");
+      const type = p.blob.type || "image/jpeg";
+      const ext = (type.split("/")[1] || "jpg").replace("jpeg", "jpg");
       const path = `${S.user.id}/${hand.id}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
-      const { error } = await sb.storage.from("hands").upload(path, p.file, { contentType: p.file.type, upsert: false });
+      const { error } = await sb.storage.from("hands").upload(path, p.blob, { contentType: type, upsert: false });
       if (error) { fail(error, "enviar um print"); continue; }
       const img = await q(sb.from("hand_images").insert({ hand_id: hand.id, path, sort: sort++ }).select().single(), "registrar o print");
       S.images.push(img);
@@ -416,7 +510,7 @@ document.addEventListener("paste", e => {
   const files = [...(e.clipboardData?.items || [])].filter(i => i.kind === "file" && i.type.startsWith("image/")).map(i => i.getAsFile()).filter(Boolean);
   if (!files.length) return;
   e.preventDefault();
-  if (dlgHand.open) { files.forEach(addPending); renderGallery(); toast("Print adicionado"); }
+  if (dlgHand.open) { addFiles(files); toast("Print adicionado"); }
   else openHand(null, files);
 });
 let dragDepth = 0;
@@ -429,7 +523,7 @@ document.addEventListener("drop", e => {
   e.preventDefault();
   const files = [...e.dataTransfer.files].filter(f => f.type.startsWith("image/"));
   if (!files.length) return;
-  if (dlgHand.open) { files.forEach(addPending); renderGallery(); } else openHand(null, files);
+  if (dlgHand.open) addFiles(files); else openHand(null, files);
 });
 
 /* ================= events (agenda) ================= */
