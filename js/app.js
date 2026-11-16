@@ -452,10 +452,11 @@ function renderDoubt() {
         <div class="card">
           <div class="card-h"><h2>Discussão</h2><span class="muted" style="font-size:.8rem">${cms.length ? cms.length + (cms.length === 1 ? " comentário" : " comentários") : ""}</span></div>
           <div class="thread">
-            ${cms.length ? cms.map(c => `
+            ${cms.length ? cms.map(c => CE.id === c.id ? cmtEditor(c) : `
               <div class="cmt ${c.pinned ? "pinned" : ""}" data-cm="${c.id}">
-                <div class="cmt-h">${c.pinned ? `<span class="pin-lbl">📌 Conclusão</span>` : ""}<span>${fmtWhen(c.created_at)}</span><span class="spacer"></span>
+                <div class="cmt-h">${c.pinned ? `<span class="pin-lbl">📌 Conclusão</span>` : ""}<span>${fmtWhen(c.created_at)}${c.edited_at ? " · editado" : ""}</span><span class="spacer"></span>
                   <button type="button" data-cm-act="pin">${c.pinned ? "Desafixar" : "Fixar como conclusão"}</button>
+                  <button type="button" data-cm-act="edit">Editar</button>
                   <button type="button" data-cm-act="del">Excluir</button></div>
                 ${c.body ? `<div class="cmt-body">${esc(c.body)}</div>` : ""}
                 ${c.images?.length ? `<div class="cmt-imgs">${c.images.map(p => `<img src="${esc(S.urls.get(p) || "")}" alt="Print do comentário" data-zoom-cm>`).join("")}</div>` : ""}
@@ -499,6 +500,33 @@ function renderDoubt() {
     </div>`;
 }
 
+// edição de comentário: texto, tirar prints e adicionar prints novos
+const CE = { id: null, text: "", keep: [], files: [] };
+function cmtEditor(c) {
+  return `<div class="cmt editing ${c.pinned ? "pinned" : ""}" data-cm="${c.id}">
+    <div class="cmt-h">${c.pinned ? `<span class="pin-lbl">📌 Conclusão</span>` : ""}<span>Editando</span></div>
+    <textarea id="ce-text" rows="3">${esc(CE.text)}</textarea>
+    ${CE.keep.length || CE.files.length ? `<div class="pend">
+      ${CE.keep.map((p, k) => `<div><img src="${esc(S.urls.get(p) || "")}" alt=""><button type="button" data-ce-rm-old="${k}" aria-label="Tirar print">✕</button></div>`).join("")}
+      ${CE.files.map((f, k) => `<div><img src="${f.url}" alt=""><button type="button" data-ce-rm-new="${k}" aria-label="Tirar print">✕</button></div>`).join("")}
+    </div>` : ""}
+    <div class="row">
+      <label class="btn ghost sm" style="cursor:pointer">📎 Anexar print<input type="file" id="ce-file" accept="image/*" multiple hidden></label>
+      <span class="muted" style="font-size:.75rem;flex:1">Ctrl+V cola print aqui · Ctrl+Enter salva</span>
+      <button class="btn sm" type="button" data-cm-act="edit-cancel">Cancelar</button>
+      <button class="btn sm primary" type="button" data-cm-act="edit-save">Salvar</button>
+    </div>
+  </div>`;
+}
+async function addEditFiles(files) {
+  for (const f of [...files].filter(f => f && f.type && f.type.startsWith("image/"))) {
+    const blob = await compress(f);
+    CE.files.push({ blob, url: URL.createObjectURL(blob) });
+  }
+  renderDoubt(); $("#ce-text")?.focus();
+}
+function endEdit() { CE.files.forEach(f => URL.revokeObjectURL(f.url)); CE.id = null; CE.text = ""; CE.keep = []; CE.files = []; }
+
 async function addCommentFiles(files) {
   for (const f of [...files].filter(f => f && f.type && f.type.startsWith("image/"))) {
     const blob = await compress(f);
@@ -513,21 +541,28 @@ async function setDecision(d, patch, what) {
   return r;
 }
 
-$("#v-duvida").addEventListener("input", e => { if (e.target.id === "cm-text") CM.text = e.target.value; });
+$("#v-duvida").addEventListener("input", e => { if (e.target.id === "cm-text") CM.text = e.target.value; if (e.target.id === "ce-text") CE.text = e.target.value; });
 $("#v-duvida").addEventListener("change", e => {
   if (e.target.id === "cm-file") { const f = [...e.target.files]; e.target.value = ""; addCommentFiles(f); }
+  if (e.target.id === "ce-file") { const f = [...e.target.files]; e.target.value = ""; addEditFiles(f); }
   if (e.target.id === "lobby-file") { const f = e.target.files[0]; e.target.value = ""; if (f) uploadLobby(f); }
 });
 $("#v-duvida").addEventListener("dragover", e => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); $("#cm-box")?.classList.add("over"); } });
 $("#v-duvida").addEventListener("dragleave", e => { if (!e.currentTarget.contains(e.relatedTarget)) $("#cm-box")?.classList.remove("over"); });
-$("#v-duvida").addEventListener("keydown", e => { if (e.target.id === "cm-text" && e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $("#cm-send")?.click(); } });
+$("#v-duvida").addEventListener("keydown", e => {
+  if (e.key !== "Enter" || !(e.ctrlKey || e.metaKey)) return;
+  if (e.target.id === "cm-text") { e.preventDefault(); $("#cm-send")?.click(); }
+  if (e.target.id === "ce-text") { e.preventDefault(); $("[data-cm-act=edit-save]")?.click(); }
+});
 $("#v-duvida").addEventListener("click", async e => {
   const t = e.target;
   const d = S.decisions.find(x => x.id === currentDec); if (!d) return;
-  const go = t.closest("[data-go]"); if (go) { if (go.dataset.go) { CM.text = ""; location.hash = "duvida-" + go.dataset.go; } return; }
+  const go = t.closest("[data-go]"); if (go) { if (go.dataset.go) { CM.text = ""; endEdit(); location.hash = "duvida-" + go.dataset.go; } return; }
   const sh = t.closest("[data-show]"); if (sh) { showIdx = +sh.dataset.show; renderDoubt(); return; }
   if (t.closest("[data-stage]")) { openShow(d, showIdx); return; }
   const zc = t.closest("[data-zoom-cm]"); if (zc) { $("#viewer-img").src = zc.src; $("#dlg-view").showModal(); return; }
+  const ro = t.closest("[data-ce-rm-old]"); if (ro) { CE.keep.splice(+ro.dataset.ceRmOld, 1); renderDoubt(); return; }
+  const rn = t.closest("[data-ce-rm-new]"); if (rn) { const [f] = CE.files.splice(+rn.dataset.ceRmNew, 1); URL.revokeObjectURL(f.url); renderDoubt(); return; }
   const rmf = t.closest("[data-cm-rm]"); if (rmf) { const [f] = CM.files.splice(+rmf.dataset.cmRm, 1); URL.revokeObjectURL(f.url); renderDoubt(); return; }
 
   const hb = t.closest("[data-hrc]");
@@ -573,6 +608,32 @@ $("#v-duvida").addEventListener("click", async e => {
   if (ca) {
     const c = S.comments.find(x => x.id === ca.closest("[data-cm]").dataset.cm); if (!c) return;
     try {
+      if (ca.dataset.cmAct === "edit") {
+        endEdit(); CE.id = c.id; CE.text = c.body || ""; CE.keep = [...(c.images || [])];
+        renderDoubt(); const ta = $("#ce-text"); if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+        return;
+      }
+      if (ca.dataset.cmAct === "edit-cancel") { endEdit(); renderDoubt(); return; }
+      if (ca.dataset.cmAct === "edit-save") {
+        const body = (CE.text || "").trim();
+        if (!body && !CE.keep.length && !CE.files.length) { toast("O comentário ficaria vazio. Use Excluir se quiser apagar.", true); return; }
+        ca.disabled = true; ca.textContent = "Salvando…";
+        const added = [];
+        for (const f of CE.files) {
+          const path = `${S.user.id}/comments/${c.decision_id}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.jpg`;
+          const { error } = await sb.storage.from("hands").upload(path, f.blob, { contentType: f.blob.type || "image/jpeg" });
+          if (error) { fail(error, "enviar o print"); continue; }
+          S.urls.set(path, f.url); f.keepUrl = true; added.push(path);
+        }
+        const images = [...CE.keep, ...added];
+        const r = await q(sb.from("comments").update({ body: body || null, images }).eq("id", c.id).select().single(), "salvar a edição");
+        const removed = (c.images || []).filter(p => !images.includes(p));
+        if (removed.length) await sb.storage.from("hands").remove(removed);
+        S.comments = S.comments.map(x => x.id === r.id ? { ...r, edited_at: true } : x);
+        CE.files = CE.files.filter(f => !f.keepUrl); endEdit();
+        toast("Comentário atualizado"); renderAll();
+        return;
+      }
       if (ca.dataset.cmAct === "pin") {
         const r = await q(sb.from("comments").update({ pinned: !c.pinned }).eq("id", c.id).select().single(), "fixar o comentário");
         S.comments = S.comments.map(x => x.id === r.id ? r : x); renderAll();
@@ -705,7 +766,7 @@ async function hrcAction(kind, d) {
       }
       const hh = buildPokerStarsHH(h.hrc_table, { handKey: h.id, date: h.played_on ? new Date(h.played_on + "T12:00:00") : new Date(), tournament: h.tournament || "", buyinOverride: h.hrc_payouts?.buyin_total, site: h.site || h.hrc_payouts?.site || "", fullBountySites: PKO_SHOWS_FULL_BOUNTY });
       try { await navigator.clipboard.writeText(hh.text); m.hh = "Copiado! Cole no HRC (importar histórico da área de transferência)."; m.hhOk = true; toast("Mão copiada para o HRC"); }
-      catch { m.hh = "O navegador não deixou copiar sozinho: abra “Ver o histórico gerado”, selecione tudo (Ctrl+A) e copie (Ctrl+C)."; }
+      catch { m.hh = "Mesa lida. Clique em “📋 Copiar mão para o HRC” de novo para copiar (o navegador só deixa copiar logo depois de um clique)."; m.hhOk = true; }
     } catch (e) { m.hh = "Não deu para montar a mão: " + (e.message || e); }
     HRC.busy = ""; renderDoubt(); return;
   }
@@ -729,6 +790,8 @@ function renderShow() {
   $("#show-prev").disabled = SH.i === 0;
   $("#show-next").disabled = SH.i >= SH.imgs.length - 1;
 }
+$("#dlg-view").addEventListener("click", e => { if (!e.target.closest("img, [data-close]")) $("#dlg-view").close(); });
+$("#dlg-show").addEventListener("click", e => { if (e.target.classList.contains("show-stage") || e.target.classList.contains("show-q")) $("#dlg-show").close(); });
 $("#show-prev").addEventListener("click", () => { if (SH.i > 0) { SH.i--; renderShow(); } });
 $("#show-next").addEventListener("click", () => { if (SH.i < SH.imgs.length - 1) { SH.i++; renderShow(); } });
 document.addEventListener("keydown", e => {
@@ -1214,6 +1277,7 @@ document.addEventListener("paste", e => {
   if (dlgHand.open && H.pasteLobby) { setEditorLobby(files[0]); }
   else if (dlgHand.open) { addFiles(files); toast("Print adicionado"); }
   else if (view === "duvida" && HRC.pasteLobby) { HRC.pasteLobby = false; uploadLobby(files[0]); }
+  else if (view === "duvida" && CE.id) addEditFiles(files);
   else if (view === "duvida" && $("#cm-text")) addCommentFiles(files);
   else openHand(null, files);
 });
@@ -1228,6 +1292,7 @@ document.addEventListener("drop", e => {
   const files = [...e.dataTransfer.files].filter(f => f.type.startsWith("image/"));
   if (!files.length) return;
   if (dlgHand.open) addFiles(files);
+  else if (view === "duvida" && CE.id) addEditFiles(files);
   else if (view === "duvida" && $("#cm-text")) addCommentFiles(files);
   else openHand(null, files);
 });

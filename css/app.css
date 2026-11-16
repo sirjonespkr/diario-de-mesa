@@ -195,8 +195,9 @@ dialog form{padding:20px 22px;display:flex;flex-direction:column;gap:14px}
 .tag-pick{display:flex;flex-wrap:wrap;gap:6px}
 .tag-pick button{border:1px solid var(--line-2);background:transparent;border-radius:999px;padding:4px 11px;font-size:.8rem;cursor:pointer;color:var(--muted);font-weight:600}
 .tag-pick button[aria-pressed="true"]{background:var(--blue-soft);border-color:var(--blue);color:var(--blue)}
-.viewer{width:auto;max-width:calc(100vw - 24px);background:#000;border:0;padding:0;position:relative}
-.viewer img{display:block;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px)}
+.viewer{width:auto;max-width:calc(100vw - 24px);background:transparent;border:0;padding:0;position:relative;box-shadow:none;overflow:visible}
+.viewer::backdrop{background:rgba(0,0,0,.85)}
+.viewer img{display:block;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);margin:0 auto;border-radius:8px}
 .viewer .icon-btn{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.7);color:#fff}
 
 /* leaks & tags */
@@ -283,7 +284,12 @@ dialog form{padding:20px 22px;display:flex;flex-direction:column;gap:14px}
 .composer textarea{background:transparent;border:0;padding:4px;min-height:64px}
 .composer textarea:focus{border:0}
 .composer .row{justify-content:space-between}
-.composer .pend{display:flex;gap:8px;flex-wrap:wrap}
+.composer .pend,.cmt .pend{display:flex;gap:8px;flex-wrap:wrap}
+.cmt .pend div{position:relative;width:96px}
+.cmt .pend img{width:96px;height:60px;object-fit:cover;border-radius:6px;display:block}
+.cmt .pend button{position:absolute;top:2px;right:2px;background:rgba(0,0,0,.75);color:#fff;border:0;border-radius:4px;width:20px;height:20px;cursor:pointer;font-size:.7rem}
+.cmt.editing{border-color:var(--accent)}
+.cmt.editing textarea{min-height:70px}
 .composer .pend div{position:relative;width:96px}
 .composer .pend img{width:96px;height:60px;object-fit:cover;border-radius:6px;display:block}
 .composer .pend button{position:absolute;top:2px;right:2px;background:rgba(0,0,0,.75);color:#fff;border:0;border-radius:4px;width:20px;height:20px;cursor:pointer;font-size:.7rem}
