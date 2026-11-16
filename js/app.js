@@ -34,7 +34,7 @@ function fail(e, what) {
 const configured = !SUPABASE_URL.startsWith("COLE_") && !!window.supabase;
 const sb = configured ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
-const S = { user: null, hands: [], images: [], decisions: [], comments: [], shares: [], events: [], tasks: [], pregrind: [], leaks: [], tags: [], urls: new Map() };
+const S = { user: null, hands: [], images: [], decisions: [], comments: [], shares: [], friend: [], events: [], tasks: [], pregrind: [], leaks: [], tags: [], urls: new Map() };
 
 async function q(promise, what) {
   const { data, error } = await promise;
@@ -43,7 +43,7 @@ async function q(promise, what) {
 }
 
 async function loadAll() {
-  const [hands, images, decisions, events, tasks, pregrind, leaks, tags, comments, shares] = await Promise.all([
+  const [hands, images, decisions, events, tasks, pregrind, leaks, tags, comments, shares, friend] = await Promise.all([
     q(sb.from("hands").select("*").order("created_at", { ascending: false }), "carregar as mãos"),
     q(sb.from("hand_images").select("*").order("sort"), "carregar os prints"),
     q(sb.from("decisions").select("*").order("sort"), "carregar as dúvidas (rodou o SQL 003?)"),
@@ -53,9 +53,11 @@ async function loadAll() {
     q(sb.from("leaks").select("*").order("created_at"), "carregar os leaks"),
     q(sb.from("tags").select("*").order("sort"), "carregar os spots"),
     q(sb.from("comments").select("*").order("created_at"), "carregar os comentários (rodou o SQL 004?)").catch(() => []),
-    sb.from("shares").select("*").order("created_at", { ascending: false }).then(r => r.error ? [] : r.data)
+    sb.from("shares").select("*").order("created_at", { ascending: false }).then(r => r.error ? [] : r.data),
+    sb.from("share_comments").select("*").order("created_at").then(r => r.error ? [] : r.data)
   ]);
-  Object.assign(S, { hands, images, decisions, events, tasks, pregrind, leaks, tags, comments, shares });
+  Object.assign(S, { hands, images, decisions, events, tasks, pregrind, leaks, tags, comments, shares, friend });
+  friendSeen = new Set(friend.map(c => c.id));
   if (!tags.length) {
     const rows = DEFAULT_TAGS.map((name, i) => ({ user_id: S.user.id, name, sort: i }));
     const { error } = await sb.from("tags").upsert(rows, { onConflict: "user_id,name", ignoreDuplicates: true });
@@ -125,12 +127,12 @@ $("#signup-btn").addEventListener("click", async () => {
 $("#logout").addEventListener("click", () => sb.auth.signOut());
 
 /* ================= routing ================= */
-const VIEWS = ["hoje", "agenda", "pregrind", "entrada", "maos", "duvida", "plantao", "leaks", "ajustes"];
+const VIEWS = ["hoje", "agenda", "pregrind", "avisos", "entrada", "maos", "duvida", "plantao", "leaks", "ajustes"];
 let currentDec = null;
 let view = "hoje";
 function route() {
   const hash = location.hash.slice(1);
-  if (hash.startsWith("duvida-")) { view = "duvida"; currentDec = hash.slice(7); showIdx = null; }
+  if (hash.startsWith("duvida-")) { view = "duvida"; currentDec = hash.slice(7); showIdx = null; setTimeout(() => markFriendRead(currentDec), 1500); }
   else view = VIEWS.includes(hash) ? hash : "hoje";
   VIEWS.forEach(v => { $("#v-" + v).hidden = v !== view; });
   const navView = view === "duvida" ? (backTo === "plantao" ? "plantao" : "maos") : view;
@@ -146,7 +148,7 @@ $("#side-close").addEventListener("click", closeSide);
 $("#scrim").addEventListener("click", closeSide);
 
 /* ================= render ================= */
-function renderAll() { renderShares(); renderBadges(); renderToday(); renderAgenda(); renderPregrind(); renderInbox(); renderLibrary(); renderPlantao(); renderLeaks(); renderTags(); if (view === "duvida") renderDoubt(); }
+function renderAll() { renderAvisos(); renderShares(); renderBadges(); renderToday(); renderAgenda(); renderPregrind(); renderInbox(); renderLibrary(); renderPlantao(); renderLeaks(); renderTags(); if (view === "duvida") renderDoubt(); }
 
 function counts() {
   return {
@@ -157,7 +159,7 @@ function counts() {
 }
 function renderBadges() {
   const c = counts();
-  [["#b-entrada", S.hands.filter(isInbox).length], ["#b-maos", c.rever], ["#b-plantao", c.plantao], ["#b-pregrind", c.pregrind]].forEach(([sel, n]) => {
+  [["#b-avisos", S.friend.filter(c => !c.read).length], ["#b-entrada", S.hands.filter(isInbox).length], ["#b-maos", c.rever], ["#b-plantao", c.plantao], ["#b-pregrind", c.pregrind]].forEach(([sel, n]) => {
     const b = $(sel); b.hidden = !n; b.textContent = n;
   });
 }
@@ -245,11 +247,12 @@ function decCard({ d, h }) {
   const answer = d.plantao_answer || pin?.body || d.conclusion;
   const showAnswer = view === "plantao" && isAnswered(d) && answer;
   const ncm = d.id ? commentsOf(d.id).length : 0;
+  const nNew = d.id ? S.friend.filter(c => c.decision_id === d.id && !c.read).length : 0;
   return `<button type="button" class="hand ${SEL.ids.has(d.id) ? "picked" : ""}" data-hand="${h.id}" ${d.id ? `data-dec="${d.id}"` : ""}>
     <div class="thumb">${url ? `<img src="${esc(url)}" alt="" loading="lazy">` : `<span class="noimg">?</span>`}${imgs.length > 1 ? `<span class="n">${imgs.length} prints</span>` : ""}</div>
     <div class="body">
       <div class="top">${streetTag(d.street)}${h.hero_cards ? `<span class="cards">${esc(h.hero_cards.split(" · ")[0])}</span>` : ""}${h.position ? `<span class="pos">${esc(h.position)}</span>` : ""}
-        ${d.plantao ? `<span class="st pl">plantão</span>` : ""}<span class="st ${d.status === "revisada" ? "revisada" : "rever"}">${d.status === "revisada" ? "resolvida" : "aberta"}</span></div>
+        ${nNew ? `<span class="newc">💬 ${nNew} novo${nNew === 1 ? "" : "s"}</span>` : ""}${d.plantao ? `<span class="st pl">plantão</span>` : ""}<span class="st ${d.status === "revisada" ? "revisada" : "rever"}">${d.status === "revisada" ? "resolvida" : "aberta"}</span></div>
       ${h.tournament || h.site ? `<div class="tour">${esc([h.site, h.tournament].filter(Boolean).join(" · "))}${h.played_on ? " · " + shortDate(h.played_on) : ""}</div>` : ""}
       ${d.question ? `<div class="q">${esc(d.question)}</div>` : `<div class="q muted">Sem dúvida escrita</div>`}
       ${d.situation ? `<div class="sit">${esc(d.situation)}</div>` : ""}
@@ -492,6 +495,7 @@ function renderDoubt() {
             </div>
           </div>
         </div>
+        ${friendsCard(d)}
       </div>
 
       <div class="dv-side">
@@ -1591,6 +1595,101 @@ document.addEventListener("click", async e => {
     toast(r.revoked ? "Link desativado" : "Link reativado");
   } catch { }
 });
+
+/* ================= comentários dos amigos e avisos ================= */
+let friendSeen = new Set();
+const OWNER_NAME = HERO_NICKS[0] || "Autor";
+const fWhen = iso => { const d = new Date(iso); return `${dayTitle(iso_(d))}, ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`; };
+const iso_ = d => iso(d);
+function friendsCard(d) {
+  const list = S.friend.filter(c => c.decision_id === d.id);
+  const shared = S.shares.some(sh => !sh.revoked && sh.decision_ids.includes(d.id));
+  if (!list.length && !shared) return "";
+  const pins = commentsOf(d.id).filter(c => c.pinned);
+  const pinIds = new Set(pins.map(p => p.id));
+  const sec = (title, thumb, pinId) => {
+    const items = list.filter(c => pinId ? c.pin_id === pinId : (!c.pin_id || !pinIds.has(c.pin_id)));
+    return `<div class="fr-sec">
+      <div class="sec-h">${thumb ? `<img src="${esc(thumb)}" alt="">` : ""}${pinId ? `Conclusão: <span>${esc(title)}</span>` : "Gerais"}</div>
+      ${items.length ? `<div class="fthread">${items.map(c => `<div class="fcm" data-fc="${c.id}"><span class="who ${c.is_owner ? "me" : ""}">${c.is_owner ? "Você" : esc(c.author_name)}</span><span class="when">${fWhen(c.created_at)}</span>${c.read ? "" : `<span class="new">novo</span>`}<button class="x" type="button" data-fc-del aria-label="Excluir comentário">excluir</button><p>${esc(c.body)}</p></div>`).join("")}</div>` : `<p class="muted" style="margin:0;font-size:.84rem">Nenhum comentário ainda.</p>`}
+      <div class="freply"><input type="text" data-freply="${pinId || ""}" maxlength="2000" placeholder="${pinId ? "Responder sobre esta conclusão…" : "Responder…"}" aria-label="Responder"><button class="btn sm" type="button" data-freply-send="${pinId || ""}">Enviar</button></div>
+    </div>`;
+  };
+  return `<div class="card">
+    <div class="card-h"><h2>💬 Comentários dos amigos</h2><span class="muted" style="font-size:.8rem">${list.length ? list.length + (list.length === 1 ? " comentário" : " comentários") : (shared ? "aparecem aqui quando eles comentarem no link" : "")}</span></div>
+    ${pins.map(p => sec(p.body || "print", p.images?.[0] ? S.urls.get(p.images[0]) : "", p.id)).join("")}
+    ${sec("", "", null)}
+  </div>`;
+}
+async function sendFriendReply(pinKey) {
+  const d = S.decisions.find(x => x.id === currentDec); if (!d) return;
+  const input = $(`[data-freply="${pinKey}"]`); const body = (input?.value || "").trim(); if (!body) { input?.focus(); return; }
+  try {
+    const r = await q(sb.from("share_comments").insert({ owner_id: S.user.id, decision_id: d.id, pin_id: pinKey || null, author_name: OWNER_NAME, is_owner: true, body, read: true }).select().single(), "enviar a resposta (rodou o SQL 007?)");
+    S.friend.push(r); friendSeen.add(r.id); renderDoubt(); toast("Resposta enviada");
+  } catch { }
+}
+$("#v-duvida").addEventListener("click", async e => {
+  const sbtn = e.target.closest("[data-freply-send]"); if (sbtn) { sendFriendReply(sbtn.dataset.freplySend); return; }
+  const del = e.target.closest("[data-fc-del]");
+  if (del) {
+    if (!del.hasAttribute("data-armed")) { del.setAttribute("data-armed", ""); del.textContent = "confirmar"; return; }
+    const id = del.closest("[data-fc]").dataset.fc;
+    try { await q(sb.from("share_comments").delete().eq("id", id), "excluir o comentário"); S.friend = S.friend.filter(c => c.id !== id); renderAll(); } catch { }
+  }
+});
+$("#v-duvida").addEventListener("keydown", e => { if (e.target.matches("[data-freply]") && e.key === "Enter") { e.preventDefault(); sendFriendReply(e.target.dataset.freply); } });
+
+async function markFriendRead(decId) {
+  if (view !== "duvida" || currentDec !== decId) return;
+  const ids = S.friend.filter(c => c.decision_id === decId && !c.read).map(c => c.id);
+  if (!ids.length) return;
+  const { error } = await sb.from("share_comments").update({ read: true }).in("id", ids);
+  if (error) return;
+  S.friend = S.friend.map(c => ids.includes(c.id) ? { ...c, read: true } : c);
+  renderBadges(); renderAvisos(); renderLibrary();
+}
+function renderAvisos() {
+  const el = $("#av-list"); if (!el) return;
+  const list = [...S.friend].filter(c => !c.is_owner).sort((a, b) => (a.read - b.read) || b.created_at.localeCompare(a.created_at)).slice(0, 80);
+  $("#av-read-all").hidden = !S.friend.some(c => !c.read);
+  el.innerHTML = list.length ? list.map(c => {
+    const d = S.decisions.find(x => x.id === c.decision_id);
+    const pin = c.pin_id ? S.comments.find(x => x.id === c.pin_id) : null;
+    return `<button type="button" class="av ${c.read ? "" : "unread"}" data-av="${c.decision_id}">
+      <span class="dot"></span>
+      <div style="min-width:0"><span class="who">${esc(c.author_name)}</span><span class="when">${fWhen(c.created_at)}</span>
+        <p class="body">${esc(c.body)}</p>
+        <div class="where">em: ${esc(d?.question || "dúvida")}${pin ? ` · sobre a conclusão “${esc((pin.body || "print").slice(0, 60))}”` : ""}</div></div>
+    </button>`;
+  }).join("") : `<p class="muted" style="margin:0">Nenhum aviso ainda. Quando seus amigos comentarem num link compartilhado, aparece aqui.</p>`;
+}
+$("#av-list").addEventListener("click", e => {
+  const a = e.target.closest("[data-av]"); if (!a) return;
+  backTo = "maos"; navIds = null; location.hash = "duvida-" + a.dataset.av;
+});
+$("#av-read-all").addEventListener("click", async () => {
+  const ids = S.friend.filter(c => !c.read).map(c => c.id); if (!ids.length) return;
+  try { await q(sb.from("share_comments").update({ read: true }).in("id", ids), "marcar como lido"); S.friend = S.friend.map(c => ({ ...c, read: true })); renderAll(); } catch { }
+});
+let friendBusy = false;
+async function refreshFriend() {
+  if (!S.user || friendBusy) return;
+  friendBusy = true;
+  try {
+    const { data, error } = await sb.from("share_comments").select("*").order("created_at");
+    if (error) return;
+    const fresh = data.filter(c => !friendSeen.has(c.id) && !c.is_owner);
+    const changed = data.length !== S.friend.length || data.some((c, i) => S.friend[i]?.id !== c.id || S.friend[i]?.read !== c.read);
+    S.friend = data; data.forEach(c => friendSeen.add(c.id));
+    if (fresh.length) toast(fresh.length === 1 ? `💬 ${fresh[0].author_name} comentou numa dúvida` : `💬 ${fresh.length} comentários novos dos amigos`);
+    if (changed) { renderBadges(); renderAvisos(); renderLibrary(); if (view === "duvida" && !document.activeElement?.matches("[data-freply], #cm-text, #ce-text")) renderDoubt(); }
+    if (view === "duvida" && fresh.some(c => c.decision_id === currentDec)) markFriendRead(currentDec);
+  } finally { friendBusy = false; }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshFriend(); });
+window.addEventListener("focus", () => refreshFriend());
+setInterval(() => { if (!document.hidden) refreshFriend(); }, 60000);
 
 // busca prints novos enviados pelo PC: ao voltar para a aba, ao abrir a caixa e a cada 20s com ela aberta
 let inboxBusy = false;

@@ -342,6 +342,35 @@ body.selecting .hand.picked::after{content:"✓";background:var(--accent);border
 .share-list .sh .t span{font-size:.78rem;color:var(--muted)}
 .share-list .sh.off .t b{text-decoration:line-through;color:var(--muted)}
 
+/* avisos e comentários dos amigos */
+.av-list{display:flex;flex-direction:column}
+.av{display:grid;grid-template-columns:10px 1fr;gap:12px;padding:12px 4px;border-top:1px solid var(--line);cursor:pointer;text-align:left;background:none;border-left:0;border-right:0;border-bottom:0;color:var(--ink);width:100%}
+.av:first-child{border-top:0}
+.av:hover{background:var(--bg)}
+.av .dot{width:8px;height:8px;border-radius:50%;margin-top:7px;background:transparent}
+.av.unread .dot{background:var(--gold)}
+.av .who{font-weight:700}
+.av .when{color:var(--muted);font-size:.75rem;margin-left:6px}
+.av .body{margin:2px 0 4px;white-space:pre-wrap;overflow-wrap:anywhere}
+.av .where{font-size:.78rem;color:var(--muted);overflow-wrap:anywhere}
+.fr-sec{display:flex;flex-direction:column;gap:8px}
+.fr-sec + .fr-sec{border-top:1px solid var(--line);padding-top:12px}
+.fr-sec .sec-h{display:flex;align-items:center;gap:10px;font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:700}
+.fr-sec .sec-h img{width:54px;height:34px;object-fit:cover;border-radius:4px;border:1px solid var(--line-2)}
+.fr-sec .sec-h span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:none;letter-spacing:0;font-weight:600;color:var(--ink);font-size:.85rem}
+.fthread{display:flex;flex-direction:column;gap:8px;border-left:2px solid var(--line-2);padding-left:12px}
+.fcm{font-size:.9rem}
+.fcm .who{font-weight:700}
+.fcm .who.me{color:var(--accent)}
+.fcm .when{color:var(--muted);font-size:.75rem;margin-left:6px}
+.fcm .new{font-size:.66rem;font-weight:700;background:var(--gold);color:#1a1205;border-radius:4px;padding:0 5px;margin-left:6px}
+.fcm p{margin:2px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.fcm .x{opacity:.4;font-size:.75rem;margin-left:6px}
+.fcm:hover .x{opacity:1}
+.freply{display:flex;gap:8px}
+.freply input{flex:1;font-size:.88rem}
+.hand .newc{font-size:.7rem;font-weight:700;background:var(--gold);color:#1a1205;border-radius:999px;padding:1px 8px}
+
 /* lobby no editor */
 .lobby-slot{display:flex;align-items:center;gap:12px;border:1px dashed var(--line-2);border-radius:10px;padding:10px 12px;flex-wrap:wrap}
 .lobby-slot.armed{border-color:var(--accent);background:var(--accent-soft)}

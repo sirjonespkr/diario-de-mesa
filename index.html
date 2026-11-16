@@ -37,6 +37,7 @@
       <a href="#hoje" data-view="hoje"><span class="ico">◐</span>Hoje</a>
       <a href="#agenda" data-view="agenda"><span class="ico">▦</span>Agenda</a>
       <a href="#pregrind" data-view="pregrind"><span class="ico">✓</span>Pré-grind<b class="badge" id="b-pregrind" hidden></b></a>
+      <a href="#avisos" data-view="avisos"><span class="ico">🔔</span>Avisos<b class="badge warn" id="b-avisos" hidden></b></a>
       <div class="side-label">Estudo</div>
       <a href="#entrada" data-view="entrada"><span class="ico">⇣</span>Caixa de entrada<b class="badge warn" id="b-entrada" hidden></b></a>
       <a href="#maos" data-view="maos"><span class="ico">♠</span>Biblioteca de mãos<b class="badge" id="b-maos" hidden></b></a>
@@ -129,6 +130,15 @@
         </div>
         <div class="drop-hint" id="drop-hint">Cole um print (<kbd>Ctrl</kbd>+<kbd>V</kbd>) ou arraste imagens aqui para criar uma mão. Cada card abaixo é uma dúvida.</div>
         <div class="days" id="hand-grid"></div>
+      </section>
+
+      <!-- AVISOS -->
+      <section class="view" id="v-avisos" hidden>
+        <div class="page-h">
+          <div><div class="eyebrow">Meu dia</div><h1>Avisos</h1><p class="muted">Comentários dos seus amigos nas dúvidas que você compartilhou.</p></div>
+          <button class="btn sm" type="button" id="av-read-all">Marcar tudo como lido</button>
+        </div>
+        <div class="card narrow"><div class="av-list" id="av-list"></div></div>
       </section>
 
       <!-- CAIXA DE ENTRADA -->

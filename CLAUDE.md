@@ -29,6 +29,9 @@ Site pessoal (um único usuário, jogador profissional de poker, MTT) para organ
 - Tabela `shares` (token aleatório, `decision_ids`, `revoked`). Link público `/c/<token>` (rewrite em `vercel.json` para `ver.html`), que usa a função `get_share` (security definer, liberada para `anon`) e a regra de storage `prints compartilhados` (`share_allows`): visitantes veem só prints de mesa (não lobby) e prints de comentários fixados das dúvidas de links ativos. A página tem "Baixar PDF" (window.print com CSS de impressão).
 - No site: botão "🔗 Compartilhar" na dúvida; "Compartilhar várias" na biblioteca (seleção por card ou por dia); lista com copiar/desativar em Ajustes. O link é copiado antes de salvar (o navegador só deixa copiar logo após o clique).
 
+- Comentários dos amigos: tabela `share_comments` (dono = `owner_id`, `pin_id` = conclusão comentada ou null = geral, `read`). Visitantes comentam pela função `add_share_comment` (confere link ativo, dúvida do link, conclusão fixada válida, nome 1–40, texto 1–2000, limite de 30 por link a cada 10 min). O dono responde direto na tabela (`is_owner = true`, nome = `HERO_NICKS[0]`).
+- No site: tela Avisos (`#avisos`, sino com contador de não lidos), card "Comentários dos amigos" na dúvida (por conclusão + gerais, responder/excluir), selo "💬 N novos" nos cards; abrir a dúvida marca como lido. Atualiza a cada 60s e ao voltar para a aba.
+
 ## Janelas
 - Todas as janelas (`<dialog>`) fecham ao clicar fora ou com Esc. Janelas com formulário registram uma verificação em `dirtyChecks`; se houver alteração não salva, aparece o aviso "Descartar / Continuar editando" em vez de fechar.
 

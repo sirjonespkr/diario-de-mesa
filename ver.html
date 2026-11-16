@@ -57,6 +57,27 @@ h2{font-size:1.25rem;line-height:1.3}
 .concl .imgs img{width:100%;border-radius:8px;border:1px solid var(--line-2);cursor:zoom-in;display:block}
 .tags{display:flex;gap:6px;flex-wrap:wrap}
 .tag{font-size:.74rem;font-weight:600;border-radius:999px;padding:2px 9px;background:var(--blue-soft);color:var(--blue)}
+.pin{display:flex;flex-direction:column;gap:10px}
+.pin + .pin{border-top:1px solid rgba(52,195,143,.25);padding-top:12px}
+.thread{display:flex;flex-direction:column;gap:8px;border-left:2px solid var(--line-2);padding-left:12px;margin-left:2px}
+.fc{font-size:.9rem}
+.fc .who{font-weight:700}
+.fc .who.owner{color:var(--accent)}
+.fc .badge{font-size:.66rem;font-weight:700;color:#06150f;background:var(--accent);border-radius:4px;padding:0 5px;margin-left:4px;vertical-align:1px}
+.fc .when{color:var(--muted);font-size:.75rem;margin-left:6px}
+.fc p{margin:2px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.cform{display:flex;flex-direction:column;gap:6px}
+.open-form{align-self:flex-start;border:1px solid rgba(52,195,143,.4);background:transparent;color:var(--accent);border-radius:999px;padding:4px 12px;font:inherit;font-size:.8rem;font-weight:600;cursor:pointer}
+.open-form:hover{background:var(--accent-soft)}
+.cform input,.cform textarea{background:var(--bg);border:1px solid var(--line-2);border-radius:8px;padding:8px 10px;color:var(--ink);font:inherit;font-size:.9rem;width:100%}
+.cform textarea{resize:vertical;min-height:40px}
+.cform input:focus,.cform textarea:focus{outline:none;border-color:var(--accent)}
+.cform .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cform .row .as{flex:1;font-size:.78rem;color:var(--muted)}
+.cform .row .as button{border:0;background:none;color:var(--muted);text-decoration:underline;cursor:pointer;font:inherit;padding:0}
+.cform .err{color:var(--gold);font-size:.8rem}
+.gen{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:14px}
+.gen h3,.pin-h{margin:0;font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
 .empty{color:var(--muted);text-align:center;padding:60px 16px;border:1px dashed var(--line-2);border-radius:14px}
 .lightbox{position:fixed;inset:0;background:rgba(0,0,0,.9);display:grid;place-items:center;z-index:50;padding:12px;cursor:zoom-out}
 .lightbox img{max-width:100%;max-height:100%;border-radius:8px}
@@ -72,6 +93,7 @@ footer{margin-top:30px;font-size:.78rem;color:var(--muted);text-align:center}
   .stage{background:none}
   .strip{grid-template-columns:repeat(4,1fr)}
   .strip button{border:1px solid #ccc}
+  .cform{display:none}
 }
 </style>
 </head>
@@ -98,8 +120,10 @@ const token = location.pathname.startsWith("/c/") ? decodeURIComponent(location.
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 const urls = new Map();
 
-async function load() {
+let NAME = (() => { try { return localStorage.getItem("dm-nome") || ""; } catch { return ""; } })();
+async function load(keepScroll = false) {
   if (!token) return fail("Link incompleto.");
+  const y = window.scrollY;
   const { data, error } = await sb.rpc("get_share", { p_token: token });
   if (error) return fail("Não deu para abrir este link agora. Tente de novo em instantes.");
   if (!data) return fail("Este link não existe ou foi desativado por quem compartilhou.");
@@ -117,6 +141,7 @@ async function load() {
       <p class="muted">${items.length} dúvida${items.length === 1 ? "" : "s"} · compartilhado em ${fmtDate(data.created_at)}</p>
     </div>
     ${items.length ? items.map(itemHtml).join("") : `<p class="empty">Nenhuma dúvida neste link.</p>`}`;
+  if (keepScroll) window.scrollTo(0, y);
 }
 function fail(msg) { $("#main").innerHTML = `<p class="empty">${esc(msg)}</p>`; }
 
@@ -138,13 +163,45 @@ function itemHtml(it, n) {
     ${h.summary ? `<p class="summary"><span class="muted">Resumo da mão: </span>${esc(h.summary)}</p>` : ""}
     ${hasConcl ? `<div class="concl"><h3>Conclusão</h3>
       ${it.conclusion ? `<p>${esc(it.conclusion)}</p>` : ""}
-      ${pins.map(p => `${p.body ? `<p>${esc(p.body)}</p>` : ""}${(p.images || []).length ? `<div class="imgs">${p.images.map(x => `<img src="${esc(urls.get(x) || "")}" alt="" data-zoom>`).join("")}</div>` : ""}`).join("")}
+      ${pins.map(p => `<div class="pin">
+        ${p.body ? `<p>${esc(p.body)}</p>` : ""}${(p.images || []).length ? `<div class="imgs">${p.images.map(x => `<img src="${esc(urls.get(x) || "")}" alt="" data-zoom>`).join("")}</div>` : ""}
+        ${threadHtml(it, p.id, "Comentar sobre esta parte da conclusão…")}
+      </div>`).join("")}
     </div>` : ""}
+    <div class="gen"><h3>Comentários</h3>${threadHtml(it, null, hasConcl ? "Comentário geral sobre a mão…" : "O que você acha dessa mão?")}</div>
     ${(it.tags || []).length ? `<div class="tags">${it.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}
   </article>`;
 }
 
+function threadHtml(it, pinId, placeholder) {
+  const pinIds = new Set((it.pins || []).map(p => p.id));
+  const list = (it.friend_comments || []).filter(c => pinId ? c.pin_id === pinId : (!c.pin_id || !pinIds.has(c.pin_id)));
+  const when = iso => { const d = new Date(iso); return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) + " " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }); };
+  return `${list.length ? `<div class="thread">${list.map(c => `<div class="fc"><span class="who ${c.is_owner ? "owner" : ""}">${esc(c.author_name)}</span>${c.is_owner ? `<span class="badge">autor</span>` : ""}<span class="when">${when(c.created_at)}</span><p>${esc(c.body)}</p></div>`).join("")}</div>` : ""}
+    ${pinId ? `<button class="open-form noprint" type="button" data-open-form>💬 Comentar sobre esta parte</button>` : ""}
+    <form class="cform" data-dec="${it.id}" data-pin="${pinId || ""}" ${pinId ? "hidden" : ""}>
+      ${NAME ? "" : `<input name="name" maxlength="40" placeholder="Seu nome" required aria-label="Seu nome">`}
+      <textarea name="body" rows="2" maxlength="2000" placeholder="${esc(placeholder)}" required aria-label="Comentário"></textarea>
+      <div class="row"><span class="as">${NAME ? `Comentando como <b>${esc(NAME)}</b> · <button type="button" data-chg-name>trocar</button>` : ""}</span><button class="btn" type="submit">Comentar</button></div>
+      <span class="err" hidden></span>
+    </form>`;
+}
+document.addEventListener("submit", async e => {
+  const f = e.target.closest(".cform"); if (!f) return;
+  e.preventDefault();
+  const name = (f.elements.name?.value || NAME).trim(), body = f.elements.body.value.trim();
+  const err = f.querySelector(".err");
+  if (!name || !body) { err.textContent = "Escreva seu nome e o comentário."; err.hidden = false; return; }
+  const btn = f.querySelector("[type=submit]"); btn.disabled = true; btn.textContent = "Enviando…";
+  const { error } = await sb.rpc("add_share_comment", { p_token: token, p_decision: f.dataset.dec, p_pin: f.dataset.pin || null, p_name: name, p_body: body });
+  if (error) { err.textContent = "Não deu para enviar: " + (error.message || "tente de novo"); err.hidden = false; btn.disabled = false; btn.textContent = "Comentar"; return; }
+  NAME = name; try { localStorage.setItem("dm-nome", name); } catch { }
+  await load(true);
+});
 document.addEventListener("click", e => {
+  const of = e.target.closest("[data-open-form]");
+  if (of) { const f = of.nextElementSibling; f.hidden = false; of.hidden = true; f.querySelector("input, textarea")?.focus(); return; }
+  if (e.target.closest("[data-chg-name]")) { NAME = ""; try { localStorage.removeItem("dm-nome"); } catch { } load(true); return; }
   const z = e.target.closest("[data-zoom]");
   if (z) { $("#lb-img").src = z.src; $("#lb").hidden = false; return; }
   if (e.target.closest("#lb")) { $("#lb").hidden = true; return; }
