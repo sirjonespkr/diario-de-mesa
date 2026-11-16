@@ -324,6 +324,24 @@ dialog.show[open]{display:flex}
 .unsaved{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--gold);border-radius:10px;padding:10px 12px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
 .unsaved span{flex:1;min-width:180px;font-weight:600;color:var(--gold)}
 
+/* compartilhar */
+.selbar{position:fixed;left:50%;transform:translateX(-50%);bottom:max(16px,env(safe-area-inset-bottom));z-index:40;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--accent);border-radius:14px;padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.5);width:min(720px,calc(100vw - 24px))}
+.selbar #sel-count{font-weight:700;color:var(--accent);white-space:nowrap}
+.selbar input{flex:1;min-width:160px}
+body.selecting .hand{position:relative}
+body.selecting .hand::after{content:"";position:absolute;top:8px;left:8px;width:24px;height:24px;border-radius:7px;border:2px solid #fff;background:rgba(0,0,0,.55);box-shadow:0 1px 4px rgba(0,0,0,.5)}
+body.selecting .hand.picked{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+body.selecting .hand.picked::after{content:"✓";background:var(--accent);border-color:var(--accent);color:#06150f;font-weight:800;display:grid;place-items:center;font-size:.9rem}
+.day-sel{font-size:.78rem;color:var(--accent);font-weight:600;padding:2px 8px;border:1px solid rgba(52,195,143,.4);border-radius:999px}
+.day-sel:hover{background:var(--accent-soft)}
+.share-list{display:flex;flex-direction:column}
+.share-list .sh{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--line)}
+.share-list .sh:first-child{border-top:0}
+.share-list .sh .t{flex:1;min-width:180px}
+.share-list .sh .t b{display:block;overflow-wrap:anywhere}
+.share-list .sh .t span{font-size:.78rem;color:var(--muted)}
+.share-list .sh.off .t b{text-decoration:line-through;color:var(--muted)}
+
 /* lobby no editor */
 .lobby-slot{display:flex;align-items:center;gap:12px;border:1px dashed var(--line-2);border-radius:10px;padding:10px 12px;flex-wrap:wrap}
 .lobby-slot.armed{border-color:var(--accent);background:var(--accent-soft)}

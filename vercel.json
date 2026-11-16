@@ -6,5 +6,11 @@
     "api/hrc.js": {
       "maxDuration": 60
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/c/:token",
+      "destination": "/ver.html"
+    }
+  ]
 }

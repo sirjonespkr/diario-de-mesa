@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Estudo compartilhado · Diário de Mesa</title>
+<meta name="theme-color" content="#0b0e11">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='15' fill='%2334c38f'/><text x='16' y='22' font-size='17' text-anchor='middle' fill='%230b0e11'>♠</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.1"></script>
+<style>
+:root{
+  --bg:#0b0e11; --surface:#141920; --surface-2:#1b222b; --line:#232b35; --line-2:#2e3844;
+  --ink:#e7ecef; --muted:#8b96a3; --accent:#34c38f; --accent-soft:rgba(52,195,143,.13);
+  --gold:#e0b04a; --red:#ef5a54; --blue:#6f9cf0; --blue-soft:rgba(111,156,240,.14);
+  --f-display:"Sora","Inter",system-ui,sans-serif; --f-body:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+[hidden]{display:none!important}
+.wrap{max-width:1000px;margin:0 auto;padding:28px max(16px,env(safe-area-inset-right)) 60px max(16px,env(safe-area-inset-left))}
+header.top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:22px}
+.brand{display:flex;align-items:center;gap:9px;font-family:var(--f-display);font-weight:700}
+.chip{width:26px;height:26px;border-radius:50%;background:var(--accent);color:#06150f;display:grid;place-items:center;font-size:.9rem}
+.spacer{flex:1}
+.btn{border:1px solid var(--line-2);background:var(--surface-2);color:var(--ink);border-radius:9px;padding:8px 14px;cursor:pointer;font:inherit;font-weight:600;font-size:.88rem}
+.btn:hover{border-color:var(--muted)}
+h1,h2{font-family:var(--f-display);margin:0;letter-spacing:-.015em;text-wrap:balance}
+h1{font-size:1.7rem;line-height:1.15}
+h2{font-size:1.25rem;line-height:1.3}
+.muted{color:var(--muted)}
+.intro{margin-bottom:26px}
+.intro p{margin:6px 0 0}
+.item{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:22px;display:flex;flex-direction:column;gap:14px}
+.meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:.84rem;color:var(--muted)}
+.street{font-family:var(--f-mono);font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;border-radius:5px;padding:1px 7px;background:var(--surface-2)}
+.street.preflop{color:var(--blue)} .street.flop{color:var(--accent)} .street.turn{color:var(--gold)} .street.river{color:var(--red)}
+.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.facts{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:.88rem}
+.facts span b{color:var(--muted);font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;margin-right:6px}
+.stage{background:#000;border-radius:10px;overflow:hidden;position:relative}
+.stage img{display:block;width:100%;height:auto;cursor:zoom-in}
+.stage .cap{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(transparent,rgba(0,0,0,.85));color:#fff;padding:20px 12px 9px;font-size:.88rem;font-weight:600}
+.strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.strip button{border:2px solid transparent;border-radius:8px;padding:0;background:var(--surface-2);cursor:pointer;overflow:hidden;text-align:left;color:var(--muted);display:flex;flex-direction:column}
+.strip button[aria-current="true"]{border-color:var(--accent)}
+.strip img{width:100%;aspect-ratio:16/10;object-fit:cover;display:block}
+.strip span{font-size:.72rem;padding:4px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.summary{font-size:.92rem;margin:0}
+.concl{border:1px solid rgba(52,195,143,.4);background:var(--accent-soft);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.concl h3{margin:0;font-size:.78rem;color:var(--accent);text-transform:uppercase;letter-spacing:.08em}
+.concl p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.concl .imgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.concl .imgs img{width:100%;border-radius:8px;border:1px solid var(--line-2);cursor:zoom-in;display:block}
+.tags{display:flex;gap:6px;flex-wrap:wrap}
+.tag{font-size:.74rem;font-weight:600;border-radius:999px;padding:2px 9px;background:var(--blue-soft);color:var(--blue)}
+.empty{color:var(--muted);text-align:center;padding:60px 16px;border:1px dashed var(--line-2);border-radius:14px}
+.lightbox{position:fixed;inset:0;background:rgba(0,0,0,.9);display:grid;place-items:center;z-index:50;padding:12px;cursor:zoom-out}
+.lightbox img{max-width:100%;max-height:100%;border-radius:8px}
+footer{margin-top:30px;font-size:.78rem;color:var(--muted);text-align:center}
+@media print{
+  :root{--bg:#fff;--surface:#fff;--surface-2:#f2f4f6;--line:#d5dbe0;--line-2:#c4ccd3;--ink:#111;--muted:#555;--accent:#0f8a5f;--accent-soft:#eef8f3;color-scheme:light}
+  body{font-size:12px}
+  .noprint{display:none!important}
+  .wrap{padding:0;max-width:none}
+  .item{break-inside:avoid;page-break-inside:avoid;border-color:#ccc}
+  .stage img{max-height:11cm;object-fit:contain;width:auto;margin:0 auto}
+  .stage .cap{position:static;background:none;color:#111;padding:4px 0 0}
+  .stage{background:none}
+  .strip{grid-template-columns:repeat(4,1fr)}
+  .strip button{border:1px solid #ccc}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand"><span class="chip">♠</span>Diário de Mesa</div>
+    <span class="spacer"></span>
+    <button class="btn noprint" type="button" id="pdf" hidden>⬇ Baixar PDF</button>
+  </header>
+  <main id="main"><p class="empty">Carregando…</p></main>
+  <footer>Estudo compartilhado pelo Diário de Mesa · só leitura</footer>
+</div>
+<div class="lightbox" id="lb" hidden><img id="lb-img" alt=""></div>
+
+<script type="module">
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "/js/config.js";
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const STREETS = { preflop: "Pré-flop", flop: "Flop", turn: "Turn", river: "River" };
+const fmtDate = s => { if (!s) return ""; const [y, m, d] = String(s).slice(0, 10).split("-"); return `${d}/${m}/${y}`; };
+
+const token = location.pathname.startsWith("/c/") ? decodeURIComponent(location.pathname.slice(3)) : (new URLSearchParams(location.search).get("t") || location.hash.slice(1));
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+const urls = new Map();
+
+async function load() {
+  if (!token) return fail("Link incompleto.");
+  const { data, error } = await sb.rpc("get_share", { p_token: token });
+  if (error) return fail("Não deu para abrir este link agora. Tente de novo em instantes.");
+  if (!data) return fail("Este link não existe ou foi desativado por quem compartilhou.");
+  const items = data.items || [];
+  const paths = [...new Set(items.flatMap(it => [...(it.images || []).map(i => i.path), ...(it.pins || []).flatMap(p => p.images || [])]))];
+  for (let i = 0; i < paths.length; i += 100) {
+    const r = await sb.storage.from("hands").createSignedUrls(paths.slice(i, i + 100), 60 * 60 * 6);
+    (r.data || []).forEach(x => { if (x.signedUrl) urls.set(x.path, x.signedUrl); });
+  }
+  document.title = (data.title || "Estudo compartilhado") + " · Diário de Mesa";
+  $("#pdf").hidden = !items.length;
+  $("#main").innerHTML = `
+    <div class="intro">
+      <h1>${esc(data.title || "Estudo compartilhado")}</h1>
+      <p class="muted">${items.length} dúvida${items.length === 1 ? "" : "s"} · compartilhado em ${fmtDate(data.created_at)}</p>
+    </div>
+    ${items.length ? items.map(itemHtml).join("") : `<p class="empty">Nenhuma dúvida neste link.</p>`}`;
+}
+function fail(msg) { $("#main").innerHTML = `<p class="empty">${esc(msg)}</p>`; }
+
+function itemHtml(it, n) {
+  const h = it.hand || {};
+  const imgs = it.images || [];
+  let idx = imgs.findIndex(i => i.id === it.image_id); if (idx < 0) idx = 0;
+  const cur = imgs[idx];
+  const fact = (k, v) => v ? `<span><b>${k}</b>${esc(v)}</span>` : "";
+  const pins = it.pins || [];
+  const hasConcl = it.conclusion || pins.some(p => p.body || (p.images || []).length);
+  return `<article class="item" data-item="${n}" data-idx="${idx}">
+    <div class="meta">${STREETS[it.street] ? `<span class="street ${it.street}">${STREETS[it.street]}</span>` : ""}<span>Dúvida ${n + 1}</span>${h.played_on ? `<span>· ${fmtDate(h.played_on)}</span>` : ""}</div>
+    <h2>${esc(it.question || "Dúvida")}</h2>
+    ${it.situation ? `<p class="muted" style="margin:0">${esc(it.situation)}</p>` : ""}
+    <div class="facts">${fact("Cartas", h.hero_cards)}${fact("Posição", h.position)}${fact("Stack", h.stack_bb != null ? h.stack_bb + " bb" : "")}${fact("Board", h.board)}${fact("Sala", h.site)}${fact("Torneio", h.tournament)}</div>
+    ${cur ? `<div class="stage"><img src="${esc(urls.get(cur.path) || "")}" alt="Print ${idx + 1}" data-zoom><div class="cap">Print ${idx + 1} de ${imgs.length}${cur.caption ? " — " + esc(cur.caption) : ""}</div></div>` : ""}
+    ${imgs.length > 1 ? `<div class="strip">${imgs.map((im, k) => `<button type="button" data-pick="${k}" aria-current="${k === idx}"><img src="${esc(urls.get(im.path) || "")}" alt="Print ${k + 1}"><span>${k + 1}${im.caption ? " · " + esc(im.caption) : ""}</span></button>`).join("")}</div>` : ""}
+    ${h.summary ? `<p class="summary"><span class="muted">Resumo da mão: </span>${esc(h.summary)}</p>` : ""}
+    ${hasConcl ? `<div class="concl"><h3>Conclusão</h3>
+      ${it.conclusion ? `<p>${esc(it.conclusion)}</p>` : ""}
+      ${pins.map(p => `${p.body ? `<p>${esc(p.body)}</p>` : ""}${(p.images || []).length ? `<div class="imgs">${p.images.map(x => `<img src="${esc(urls.get(x) || "")}" alt="" data-zoom>`).join("")}</div>` : ""}`).join("")}
+    </div>` : ""}
+    ${(it.tags || []).length ? `<div class="tags">${it.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}
+  </article>`;
+}
+
+document.addEventListener("click", e => {
+  const z = e.target.closest("[data-zoom]");
+  if (z) { $("#lb-img").src = z.src; $("#lb").hidden = false; return; }
+  if (e.target.closest("#lb")) { $("#lb").hidden = true; return; }
+  const pk = e.target.closest("[data-pick]");
+  if (pk) {
+    const art = pk.closest("[data-item]");
+    const imgs = [...art.querySelectorAll(".strip img")];
+    const k = +pk.dataset.pick;
+    const stage = art.querySelector(".stage");
+    stage.querySelector("img").src = imgs[k].src;
+    const cap = pk.querySelector("span").textContent.replace(/^\d+( · )?/, "");
+    stage.querySelector(".cap").textContent = `Print ${k + 1} de ${imgs.length}${cap ? " — " + cap : ""}`;
+    art.querySelectorAll("[data-pick]").forEach(b => b.setAttribute("aria-current", b === pk));
+  }
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") $("#lb").hidden = true; });
+$("#pdf").addEventListener("click", () => window.print());
+load();
+</script>
+</body>
+</html>

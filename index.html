@@ -125,6 +125,7 @@
           <select id="f-tag" aria-label="Filtrar por spot"><option value="">Todos os spots</option></select>
           <select id="f-site" aria-label="Filtrar por sala"><option value="">Todas as salas</option></select>
           <select id="f-leak" aria-label="Filtrar por leak"><option value="">Qualquer leak</option></select>
+          <button class="btn sm" type="button" id="sel-toggle">🔗 Compartilhar várias</button>
         </div>
         <div class="drop-hint" id="drop-hint">Cole um print (<kbd>Ctrl</kbd>+<kbd>V</kbd>) ou arraste imagens aqui para criar uma mão. Cada card abaixo é uma dúvida.</div>
         <div class="days" id="hand-grid"></div>
@@ -185,6 +186,11 @@
           <div class="tag-admin" id="tag-admin"></div>
         </div>
         <div class="card narrow" style="margin-top:16px">
+          <h2>Links compartilhados</h2>
+          <p class="muted" style="margin:0">Quem tem o link vê só as dúvidas dele (prints, pergunta, resumo e conclusão). Desativar faz o link parar de funcionar na hora.</p>
+          <div id="share-list" class="share-list"></div>
+        </div>
+        <div class="card narrow" style="margin-top:16px">
           <h2>Atalho no PC</h2>
           <p class="muted" style="margin:0">Envia prints direto para a Caixa de entrada, sem IA. Não mexe no Win+Shift+S.</p>
           <ul class="muted" style="margin:0;padding-left:18px;line-height:1.8">
@@ -201,6 +207,14 @@
       </section>
     </main>
   </div>
+</div>
+
+<!-- barra de seleção para compartilhar -->
+<div class="selbar" id="selbar" hidden>
+  <span id="sel-count">0 selecionadas</span>
+  <input type="text" id="sel-title" placeholder="Título do link (opcional)" aria-label="Título do link">
+  <button class="btn sm" type="button" id="sel-cancel">Cancelar</button>
+  <button class="btn sm primary" type="button" id="sel-share" disabled>🔗 Copiar link</button>
 </div>
 
 <!-- MÃO -->

@@ -34,7 +34,7 @@ function fail(e, what) {
 const configured = !SUPABASE_URL.startsWith("COLE_") && !!window.supabase;
 const sb = configured ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
-const S = { user: null, hands: [], images: [], decisions: [], comments: [], events: [], tasks: [], pregrind: [], leaks: [], tags: [], urls: new Map() };
+const S = { user: null, hands: [], images: [], decisions: [], comments: [], shares: [], events: [], tasks: [], pregrind: [], leaks: [], tags: [], urls: new Map() };
 
 async function q(promise, what) {
   const { data, error } = await promise;
@@ -43,7 +43,7 @@ async function q(promise, what) {
 }
 
 async function loadAll() {
-  const [hands, images, decisions, events, tasks, pregrind, leaks, tags, comments] = await Promise.all([
+  const [hands, images, decisions, events, tasks, pregrind, leaks, tags, comments, shares] = await Promise.all([
     q(sb.from("hands").select("*").order("created_at", { ascending: false }), "carregar as mãos"),
     q(sb.from("hand_images").select("*").order("sort"), "carregar os prints"),
     q(sb.from("decisions").select("*").order("sort"), "carregar as dúvidas (rodou o SQL 003?)"),
@@ -52,9 +52,10 @@ async function loadAll() {
     q(sb.from("pregrind").select("*").order("created_at"), "carregar o pré-grind"),
     q(sb.from("leaks").select("*").order("created_at"), "carregar os leaks"),
     q(sb.from("tags").select("*").order("sort"), "carregar os spots"),
-    q(sb.from("comments").select("*").order("created_at"), "carregar os comentários (rodou o SQL 004?)").catch(() => [])
+    q(sb.from("comments").select("*").order("created_at"), "carregar os comentários (rodou o SQL 004?)").catch(() => []),
+    sb.from("shares").select("*").order("created_at", { ascending: false }).then(r => r.error ? [] : r.data)
   ]);
-  Object.assign(S, { hands, images, decisions, events, tasks, pregrind, leaks, tags, comments });
+  Object.assign(S, { hands, images, decisions, events, tasks, pregrind, leaks, tags, comments, shares });
   if (!tags.length) {
     const rows = DEFAULT_TAGS.map((name, i) => ({ user_id: S.user.id, name, sort: i }));
     const { error } = await sb.from("tags").upsert(rows, { onConflict: "user_id,name", ignoreDuplicates: true });
@@ -145,7 +146,7 @@ $("#side-close").addEventListener("click", closeSide);
 $("#scrim").addEventListener("click", closeSide);
 
 /* ================= render ================= */
-function renderAll() { renderBadges(); renderToday(); renderAgenda(); renderPregrind(); renderInbox(); renderLibrary(); renderPlantao(); renderLeaks(); renderTags(); if (view === "duvida") renderDoubt(); }
+function renderAll() { renderShares(); renderBadges(); renderToday(); renderAgenda(); renderPregrind(); renderInbox(); renderLibrary(); renderPlantao(); renderLeaks(); renderTags(); if (view === "duvida") renderDoubt(); }
 
 function counts() {
   return {
@@ -244,7 +245,7 @@ function decCard({ d, h }) {
   const answer = d.plantao_answer || pin?.body || d.conclusion;
   const showAnswer = view === "plantao" && isAnswered(d) && answer;
   const ncm = d.id ? commentsOf(d.id).length : 0;
-  return `<button type="button" class="hand" data-hand="${h.id}" ${d.id ? `data-dec="${d.id}"` : ""}>
+  return `<button type="button" class="hand ${SEL.ids.has(d.id) ? "picked" : ""}" data-hand="${h.id}" ${d.id ? `data-dec="${d.id}"` : ""}>
     <div class="thumb">${url ? `<img src="${esc(url)}" alt="" loading="lazy">` : `<span class="noimg">?</span>`}${imgs.length > 1 ? `<span class="n">${imgs.length} prints</span>` : ""}</div>
     <div class="body">
       <div class="top">${streetTag(d.street)}${h.hero_cards ? `<span class="cards">${esc(h.hero_cards.split(" · ")[0])}</span>` : ""}${h.position ? `<span class="pos">${esc(h.position)}</span>` : ""}
@@ -285,7 +286,7 @@ function renderLibrary() {
     return `<section>
       <button type="button" class="day-h2" data-day="${g.key}" aria-expanded="${open}">
         <span class="chev">▾</span><b>${dayTitle(g.key)}</b><span class="dt">${dayDate(g.key)}</span>
-        <span class="spacer"></span><span class="cnt">${nHands} mão${nHands === 1 ? "" : "s"} · </span><span class="cnt ${nOpen && F.status !== "revisada" ? "has-open" : ""}">${cnt}</span>
+        <span class="spacer"></span>${SEL.on ? `<span class="day-sel" data-day-sel="${g.key}">${g.items.every(x => !x.d.id || SEL.ids.has(x.d.id)) ? "tirar o dia" : "selecionar o dia"}</span>` : ""}<span class="cnt">${nHands} mão${nHands === 1 ? "" : "s"} · </span><span class="cnt ${nOpen && F.status !== "revisada" ? "has-open" : ""}">${cnt}</span>
       </button>
       ${open ? `<div class="hand-grid">${g.items.map(decCard).join("")}</div>` : ""}
     </section>`;
@@ -304,6 +305,13 @@ function dayDate(k) {
   return d.toLocaleDateString("pt-BR", sameYear ? { day: "2-digit", month: "2-digit" } : { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 $("#hand-grid").addEventListener("click", e => {
+  const ds = e.target.closest("[data-day-sel]");
+  if (ds) {
+    const items = filteredItems().filter(x => x.d.id && iso(new Date(x.h.created_at)) === ds.dataset.daySel);
+    const all = items.every(x => SEL.ids.has(x.d.id));
+    items.forEach(x => all ? SEL.ids.delete(x.d.id) : SEL.ids.add(x.d.id));
+    renderLibrary(); renderSelbar(); return;
+  }
   const b = e.target.closest("[data-day]"); if (!b) return;
   dayOpen[b.dataset.day] = b.getAttribute("aria-expanded") !== "true";
   try { localStorage.setItem("dm-dias", JSON.stringify(dayOpen)); } catch { }
@@ -357,6 +365,18 @@ function renderLeaks() {
 }
 
 /* ---- ajustes ---- */
+function renderShares() {
+  const el = $("#share-list"); if (!el) return;
+  el.innerHTML = S.shares.length ? S.shares.map(sh => `
+    <div class="sh ${sh.revoked ? "off" : ""}" data-share="${sh.id}">
+      <div class="t"><b>${esc(sh.title || "Estudo compartilhado")}</b><span>${sh.decision_ids.length} dúvida${sh.decision_ids.length === 1 ? "" : "s"} · ${shortDate(iso(new Date(sh.created_at)))}${sh.revoked ? " · desativado" : ""}</span></div>
+      ${sh.revoked ? `<button class="btn sm" type="button" data-sh-act="on">Reativar</button>` : `
+        <button class="btn sm" type="button" data-sh-act="copy">Copiar link</button>
+        <a class="btn sm" href="${shareUrl(sh.token)}" target="_blank" rel="noopener">Abrir</a>
+        <button class="btn sm danger" type="button" data-sh-act="off">Desativar</button>`}
+    </div>`).join("") : `<p class="muted" style="margin:0;font-size:.88rem">Nenhum link ainda. Use “🔗 Compartilhar” numa dúvida ou “Compartilhar várias” na biblioteca.</p>`;
+}
+
 function renderTags() {
   $("#tag-admin").innerHTML = S.tags.map(t => `<span>${esc(t.name)}<button class="x" type="button" data-del-tag="${t.id}" aria-label="Remover ${esc(t.name)}">×</button></span>`).join("")
     || `<p class="empty">Nenhum spot.</p>`;
@@ -436,6 +456,7 @@ function renderDoubt() {
           : `<button class="btn primary" type="button" data-act="toggle" title="Marca como resolvida e abre a próxima aberta da lista">✓ Marcar como resolvida${nav.nextSame("rever") ? " e ir para a próxima" : ""}</button>`}
         <button class="btn" type="button" data-act="plantao" aria-pressed="${!!d.plantao}">${d.plantao ? "✓ No plantão" : "Levar pro plantão"}</button>
         ${imgs.length ? `<button class="btn" type="button" data-act="show">▶ Apresentar</button>` : ""}
+        <button class="btn" type="button" data-act="share">🔗 Compartilhar</button>
         <button class="btn ghost" type="button" data-act="edit">Editar mão</button>
       </div>
     </div>
@@ -580,6 +601,7 @@ $("#v-duvida").addEventListener("click", async e => {
     }
     if (act === "plantao") { await setDecision(d, { plantao: !d.plantao }, "atualizar o plantão"); renderAll(); return; }
     if (act === "show") { openShow(d, showIdx); return; }
+    if (act === "share") { shareDecisions([d.id], d.question || "Dúvida de poker"); return; }
     if (act === "edit") { openHand(d.hand_id, [], { focusDec: d.id }); return; }
   } catch { return; }
 
@@ -1335,6 +1357,10 @@ document.addEventListener("click", async e => {
   const ev = t.closest("[data-ev]"); if (ev) { openEvent(ev.dataset.ev); return; }
   const hd = t.closest("[data-hand]");
   if (hd) {
+    if (SEL.on && view === "maos") {
+      if (hd.dataset.dec) { SEL.ids.has(hd.dataset.dec) ? SEL.ids.delete(hd.dataset.dec) : SEL.ids.add(hd.dataset.dec); hd.classList.toggle("picked"); renderSelbar(); renderLibrary(); }
+      return;
+    }
     if (hd.dataset.dec) { backTo = view === "plantao" ? "plantao" : "maos"; navIds = currentListIds(); location.hash = "duvida-" + hd.dataset.dec; }
     else openHand(hd.dataset.hand);
     return;
@@ -1503,6 +1529,69 @@ $("#inbox-del-all").addEventListener("click", async e => {
     toast("Caixa de entrada limpa");
   } catch { }
   b.disabled = false; renderAll();
+});
+
+/* ================= compartilhar (link de leitura) ================= */
+const SEL = { on: false, ids: new Set() };
+const shareUrl = token => `${location.origin}/c/${token}`;
+function newToken() {
+  const abc = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const b = crypto.getRandomValues(new Uint8Array(22));
+  return [...b].map(x => abc[x % abc.length]).join("");
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
+}
+// copia o link primeiro (o navegador só deixa copiar logo depois do clique) e salva em seguida
+async function shareDecisions(ids, title) {
+  ids = ids.filter(Boolean);
+  if (!ids.length) return false;
+  const token = newToken(), url = shareUrl(token);
+  const copied = await copyText(url);
+  try {
+    const r = await q(sb.from("shares").insert({ token, title: (title || "").trim().slice(0, 140) || null, decision_ids: ids }).select().single(), "criar o link (rodou o SQL 006?)");
+    S.shares.unshift(r); renderShares();
+    toast(copied ? `Link copiado! Cole no grupo. (${ids.length} dúvida${ids.length === 1 ? "" : "s"})` : `Link criado. Copie em Ajustes → Links compartilhados.`);
+    return true;
+  } catch { return false; }
+}
+function renderSelbar() {
+  document.body.classList.toggle("selecting", SEL.on && view === "maos");
+  $("#selbar").hidden = !(SEL.on && view === "maos");
+  $("#sel-count").textContent = `${SEL.ids.size} selecionada${SEL.ids.size === 1 ? "" : "s"}`;
+  $("#sel-share").disabled = !SEL.ids.size;
+  $("#sel-toggle").textContent = SEL.on ? "✓ Selecionando…" : "🔗 Compartilhar várias";
+  $("#sel-toggle").classList.toggle("primary", SEL.on);
+}
+function stopSelecting() { SEL.on = false; SEL.ids.clear(); $("#sel-title").value = ""; renderSelbar(); renderLibrary(); }
+$("#sel-toggle").addEventListener("click", () => {
+  if (SEL.on) { stopSelecting(); return; }
+  SEL.on = true;
+  // começa com as resolvidas que estão na tela
+  if (F.status !== "rever") filteredItems().forEach(x => { if (x.d.id && x.d.status === "revisada") SEL.ids.add(x.d.id); });
+  renderSelbar(); renderLibrary();
+  toast("Clique nos cards para marcar ou desmarcar");
+});
+$("#sel-cancel").addEventListener("click", stopSelecting);
+$("#sel-share").addEventListener("click", async () => {
+  // mantém a ordem da tela
+  const order = filteredItems().map(x => x.d.id).filter(id => SEL.ids.has(id));
+  const rest = [...SEL.ids].filter(id => !order.includes(id));
+  const ids = [...order, ...rest];
+  const title = $("#sel-title").value.trim() || `Estudo de ${shortDate(today())} · ${ids.length} dúvida${ids.length === 1 ? "" : "s"}`;
+  if (await shareDecisions(ids, title)) stopSelecting();
+});
+window.addEventListener("hashchange", () => { if (SEL.on && location.hash !== "#maos") stopSelecting(); });
+document.addEventListener("click", async e => {
+  const a = e.target.closest("[data-sh-act]"); if (!a) return;
+  const sh = S.shares.find(x => x.id === a.closest("[data-share]").dataset.share); if (!sh) return;
+  if (a.dataset.shAct === "copy") { toast(await copyText(shareUrl(sh.token)) ? "Link copiado" : shareUrl(sh.token)); return; }
+  if (a.dataset.shAct === "off" && !a.hasAttribute("data-armed")) { a.setAttribute("data-armed", ""); a.textContent = "Confirmar"; return; }
+  try {
+    const r = await q(sb.from("shares").update({ revoked: a.dataset.shAct === "off" }).eq("id", sh.id).select().single(), "atualizar o link");
+    S.shares = S.shares.map(x => x.id === r.id ? r : x); renderShares();
+    toast(r.revoked ? "Link desativado" : "Link reativado");
+  } catch { }
 });
 
 // busca prints novos enviados pelo PC: ao voltar para a aba, ao abrir a caixa e a cada 20s com ela aberta
