@@ -1376,7 +1376,7 @@ function renderInbox() {
           <button class="btn sm danger" type="button" data-inbox-del>Descartar</button>
         </div>
       </div></div>`;
-  }).join("") : `<p class="empty" style="grid-column:1/-1">Caixa vazia. Use <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F1</kbd> no PC para mandar prints para cá.</p>`;
+  }).join("") : `<p class="empty" style="grid-column:1/-1">Caixa vazia. Use <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> no PC para mandar prints para cá.</p>`;
 }
 $("#inbox-grid").addEventListener("click", async e => {
   const card = e.target.closest("[data-inbox]"); if (!card) return;

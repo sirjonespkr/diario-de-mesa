@@ -11,11 +11,12 @@ $SB_KEY = "sb_publishable_pgZwjSF38yBhEQo1B0AmRQ_JSn2O374"
 $JUNTAR_MINUTOS = 3          # prints com menos de X minutos de diferença entram na mesma mão
 $PEDIR_LEGENDA  = $false     # $true: abre uma caixinha para a legenda depois de cada print (rouba o foco da mesa!)
 
-# Atalhos. Modificadores: Ctrl, Shift, Alt (separados por +). Tecla: F1..F12, letras, números.
+# Atalhos, perto do Win+Shift+S. Para cada ação, usa a primeira opção que estiver livre no PC.
+# Modificadores: Win, Ctrl, Shift, Alt. Tecla: letra, número ou F1..F12. Ex.: "Win+Shift+A".
 $ATALHOS = @(
-  @{ Nome = "print"; Mods = "Ctrl+Shift"; Tecla = "F1" },   # print da mão (junta com a mão atual)
-  @{ Nome = "nova";  Mods = "Ctrl+Shift"; Tecla = "F2" },   # print começando uma mão nova
-  @{ Nome = "lobby"; Mods = "Ctrl+Shift"; Tecla = "F3" }    # print do lobby da mão atual
+  @{ Nome = "print"; Opcoes = @("Win+Shift+A", "Win+Shift+Q", "Ctrl+Shift+F1") },   # print da mão (junta com a mão atual)
+  @{ Nome = "nova";  Opcoes = @("Win+Shift+Z", "Win+Shift+W", "Ctrl+Shift+F2") },   # print começando uma mão nova
+  @{ Nome = "lobby"; Opcoes = @("Win+Shift+X", "Win+Shift+E", "Ctrl+Shift+F3") }    # print do lobby da mão atual
 )
 # =====================================================================
 
@@ -211,15 +212,21 @@ function Send-Print([string]$kind, [bool]$forceNew) {
 # ---------------- atalhos ----------------
 $win = New-Object HotkeyWindow
 $null = $win.Handle
-$MODS = @{ alt = 1; ctrl = 2; control = 2; shift = 4 }
+$MODS = @{ alt = 1; ctrl = 2; control = 2; shift = 4; win = 8 }
+$NOMES = @{ print = "mão"; nova = "mão nova"; lobby = "lobby" }
 $registered = @(); $failed = @()
 for ($i = 0; $i -lt $ATALHOS.Count; $i++) {
-  $a = $ATALHOS[$i]
-  $mod = 0x4000   # sem repetição ao segurar
-  foreach ($m in $a.Mods.Split("+")) { $mod = $mod -bor $MODS[$m.Trim().ToLower()] }
-  $vk = [int][System.Windows.Forms.Keys]$a.Tecla
-  if ([HotkeyWindow]::RegisterHotKey($win.Handle, $i + 1, $mod, $vk)) { $registered += "$($a.Mods)+$($a.Tecla)" }
-  else { $failed += "$($a.Mods)+$($a.Tecla)" }
+  $a = $ATALHOS[$i]; $ok = $false
+  foreach ($combo in $a.Opcoes) {
+    $parts = $combo.Split("+") | ForEach-Object { $_.Trim() }
+    $mod = 0x4000   # sem repetição ao segurar
+    foreach ($m in $parts[0..($parts.Count - 2)]) { $mod = $mod -bor $MODS[$m.ToLower()] }
+    $key = $parts[-1]
+    if ($key -match '^[0-9]$') { $key = "D$key" }
+    try { $vk = [int][System.Windows.Forms.Keys]$key } catch { continue }
+    if ([HotkeyWindow]::RegisterHotKey($win.Handle, $i + 1, $mod, $vk)) { $registered += "$($NOMES[$a.Nome]): $combo"; $ok = $true; break }
+  }
+  if (-not $ok) { $failed += $NOMES[$a.Nome] }
 }
 $script:busy = $false
 $win.add_Hotkey({
@@ -253,7 +260,7 @@ $tray.add_DoubleClick({ Start-Process "$SITE/#entrada" })
 try { $null = Get-Access } catch { Log "login: $($_.Exception.Message)" }
 
 $txt = if ($registered.Count) { "Ativos: " + ($registered -join ", ") } else { "Nenhum atalho ficou ativo." }
-if ($failed.Count) { $txt += ". Já usados por outro programa: " + ($failed -join ", ") }
+if ($failed.Count) { $txt += ". Sem atalho livre para: " + ($failed -join ", ") }
 Notify "Diário de Mesa: atalho ligado" $txt ($failed.Count -gt 0)
 Log "iniciado. $txt"
 

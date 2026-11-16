@@ -133,7 +133,7 @@
       <!-- CAIXA DE ENTRADA -->
       <section class="view" id="v-entrada" hidden>
         <div class="page-h">
-          <div><div class="eyebrow">Estudo</div><h1>Caixa de entrada</h1><p class="muted">Prints enviados pelo atalho do PC (Ctrl+Shift+F1). Nada aqui passou pela IA. Abra uma mão, escreva as legendas e salve para ela ir para a biblioteca.</p></div>
+          <div><div class="eyebrow">Estudo</div><h1>Caixa de entrada</h1><p class="muted">Prints enviados pelo atalho do PC (Win+Shift+A). Nada aqui passou pela IA. Abra uma mão, escreva as legendas e salve para ela ir para a biblioteca.</p></div>
           <button class="btn sm" id="inbox-refresh">↻ Atualizar</button>
         </div>
         <div class="hand-grid" id="inbox-grid"></div>
@@ -184,9 +184,10 @@
           <h2>Atalho no PC</h2>
           <p class="muted" style="margin:0">Envia prints direto para a Caixa de entrada, sem IA. Não mexe no Win+Shift+S.</p>
           <ul class="muted" style="margin:0;padding-left:18px;line-height:1.8">
-            <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F1</kbd>: print da mão (prints com menos de 3 min de diferença entram na mesma mão)</li>
-            <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F2</kbd>: print começando uma mão nova</li>
-            <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F3</kbd>: print do lobby da mão atual</li>
+            <li><kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd>: print da mão (prints com menos de 3 min de diferença entram na mesma mão)</li>
+            <li><kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>: print começando uma mão nova</li>
+            <li><kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd>: print do lobby da mão atual</li>
+            <li class="hint">Se algum estiver ocupado no PC, o programa usa a próxima opção livre e mostra qual no aviso ao ligar.</li>
           </ul>
           <p class="muted" style="margin:0">Para reinstalar em outro PC, baixe os 3 arquivos para a mesma pasta e abra “Iniciar atalho.vbs”:
             <a href="pc/DiarioDeMesa-Atalho.ps1" download>DiarioDeMesa-Atalho.ps1</a> ·
