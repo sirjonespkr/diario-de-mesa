@@ -1566,11 +1566,9 @@ function renderSelbar() {
 function stopSelecting() { SEL.on = false; SEL.ids.clear(); $("#sel-title").value = ""; renderSelbar(); renderLibrary(); }
 $("#sel-toggle").addEventListener("click", () => {
   if (SEL.on) { stopSelecting(); return; }
-  SEL.on = true;
-  // começa com as resolvidas que estão na tela
-  if (F.status !== "rever") filteredItems().forEach(x => { if (x.d.id && x.d.status === "revisada") SEL.ids.add(x.d.id); });
+  SEL.on = true; SEL.ids.clear(); // começa sem nada marcado
   renderSelbar(); renderLibrary();
-  toast("Clique nos cards para marcar ou desmarcar");
+  toast("Clique nos cards (ou em “selecionar o dia”) para marcar");
 });
 $("#sel-cancel").addEventListener("click", stopSelecting);
 $("#sel-share").addEventListener("click", async () => {
