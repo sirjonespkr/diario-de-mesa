@@ -155,7 +155,8 @@ function To-Jpeg($img, [int]$max) {
   $ep.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter ([System.Drawing.Imaging.Encoder]::Quality), ([long]90)
   $ms = New-Object System.IO.MemoryStream
   $bmp.Save($ms, $codec, $ep); $bmp.Dispose()
-  return $ms.ToArray()
+  # a vírgula impede o PowerShell de "desmontar" os bytes em uma lista de números (isso corrompia a imagem)
+  return ,($ms.ToArray())
 }
 
 # ---------------- envio ----------------
@@ -177,7 +178,8 @@ function Send-Print([string]$kind, [bool]$forceNew) {
   $isNew = $forceNew -or (-not $st.handId) -or ($kind -ne "lobby" -and $minutes -gt $JUNTAR_MINUTOS) -or ($kind -eq "lobby" -and $minutes -gt 120)
   if ($isNew) { $st.handId = New-Hand $token; $st.count = 0 }
 
-  $bytes = To-Jpeg $img $(if ($kind -eq "lobby") { 2400 } else { 2000 })
+  [byte[]]$bytes = To-Jpeg $img $(if ($kind -eq "lobby") { 2400 } else { 2000 })
+  if ($bytes.Length -lt 1000) { throw "a imagem do recorte veio vazia" }
   $img.Dispose()
   $path = "{0}/{1}/{2}-{3}.jpg" -f $script:uid, $st.handId, (Get-Date).ToString("yyyyMMddHHmmssfff"), (Get-Random -Maximum 99999)
   $h = @{ apikey = $SB_KEY; Authorization = "Bearer $token"; "x-upsert" = "false" }
