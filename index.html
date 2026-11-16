@@ -38,6 +38,7 @@
       <a href="#agenda" data-view="agenda"><span class="ico">▦</span>Agenda</a>
       <a href="#pregrind" data-view="pregrind"><span class="ico">✓</span>Pré-grind<b class="badge" id="b-pregrind" hidden></b></a>
       <div class="side-label">Estudo</div>
+      <a href="#entrada" data-view="entrada"><span class="ico">⇣</span>Caixa de entrada<b class="badge warn" id="b-entrada" hidden></b></a>
       <a href="#maos" data-view="maos"><span class="ico">♠</span>Biblioteca de mãos<b class="badge" id="b-maos" hidden></b></a>
       <a href="#plantao" data-view="plantao"><span class="ico">?</span>Plantão<b class="badge warn" id="b-plantao" hidden></b></a>
       <a href="#leaks" data-view="leaks"><span class="ico">⚑</span>Leaks</a>
@@ -129,6 +130,15 @@
         <div class="days" id="hand-grid"></div>
       </section>
 
+      <!-- CAIXA DE ENTRADA -->
+      <section class="view" id="v-entrada" hidden>
+        <div class="page-h">
+          <div><div class="eyebrow">Estudo</div><h1>Caixa de entrada</h1><p class="muted">Prints enviados pelo atalho do PC (Ctrl+Shift+F1). Nada aqui passou pela IA. Abra uma mão, escreva as legendas e salve para ela ir para a biblioteca.</p></div>
+          <button class="btn sm" id="inbox-refresh">↻ Atualizar</button>
+        </div>
+        <div class="hand-grid" id="inbox-grid"></div>
+      </section>
+
       <!-- DÚVIDA -->
       <section class="view" id="v-duvida" hidden></section>
 
@@ -169,6 +179,19 @@
             <button class="btn primary sm" type="submit">Adicionar</button>
           </form>
           <div class="tag-admin" id="tag-admin"></div>
+        </div>
+        <div class="card narrow" style="margin-top:16px">
+          <h2>Atalho no PC</h2>
+          <p class="muted" style="margin:0">Envia prints direto para a Caixa de entrada, sem IA. Não mexe no Win+Shift+S.</p>
+          <ul class="muted" style="margin:0;padding-left:18px;line-height:1.8">
+            <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F1</kbd>: print da mão (prints com menos de 3 min de diferença entram na mesma mão)</li>
+            <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F2</kbd>: print começando uma mão nova</li>
+            <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F3</kbd>: print do lobby da mão atual</li>
+          </ul>
+          <p class="muted" style="margin:0">Para reinstalar em outro PC, baixe os 3 arquivos para a mesma pasta e abra “Iniciar atalho.vbs”:
+            <a href="pc/DiarioDeMesa-Atalho.ps1" download>DiarioDeMesa-Atalho.ps1</a> ·
+            <a href="pc/Iniciar%20atalho.vbs" download>Iniciar atalho.vbs</a> ·
+            <a href="pc/Iniciar%20com%20o%20Windows.cmd" download>Iniciar com o Windows.cmd</a></p>
         </div>
       </section>
     </main>

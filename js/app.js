@@ -124,7 +124,7 @@ $("#signup-btn").addEventListener("click", async () => {
 $("#logout").addEventListener("click", () => sb.auth.signOut());
 
 /* ================= routing ================= */
-const VIEWS = ["hoje", "agenda", "pregrind", "maos", "duvida", "plantao", "leaks", "ajustes"];
+const VIEWS = ["hoje", "agenda", "pregrind", "entrada", "maos", "duvida", "plantao", "leaks", "ajustes"];
 let currentDec = null;
 let view = "hoje";
 function route() {
@@ -145,7 +145,7 @@ $("#side-close").addEventListener("click", closeSide);
 $("#scrim").addEventListener("click", closeSide);
 
 /* ================= render ================= */
-function renderAll() { renderBadges(); renderToday(); renderAgenda(); renderPregrind(); renderLibrary(); renderPlantao(); renderLeaks(); renderTags(); if (view === "duvida") renderDoubt(); }
+function renderAll() { renderBadges(); renderToday(); renderAgenda(); renderPregrind(); renderInbox(); renderLibrary(); renderPlantao(); renderLeaks(); renderTags(); if (view === "duvida") renderDoubt(); }
 
 function counts() {
   return {
@@ -156,7 +156,7 @@ function counts() {
 }
 function renderBadges() {
   const c = counts();
-  [["#b-maos", c.rever], ["#b-plantao", c.plantao], ["#b-pregrind", c.pregrind]].forEach(([sel, n]) => {
+  [["#b-entrada", S.hands.filter(isInbox).length], ["#b-maos", c.rever], ["#b-plantao", c.plantao], ["#b-pregrind", c.pregrind]].forEach(([sel, n]) => {
     const b = $(sel); b.hidden = !n; b.textContent = n;
   });
 }
@@ -224,13 +224,14 @@ function renderPregrind() {
 
 /* ---- biblioteca (um card por dúvida) ---- */
 const F = { q: "", status: "rever", tag: "", site: "", leak: "" };
+const isInbox = h => h.status === "inbox";
 function libraryItems() {
-  const handById = new Map(S.hands.map(h => [h.id, h]));
+  const handById = new Map(S.hands.filter(h => !isInbox(h)).map(h => [h.id, h]));
   const items = [];
   for (const d of S.decisions) { const h = handById.get(d.hand_id); if (h) items.push({ d, h }); }
   // mãos sem nenhuma dúvida ainda aparecem como um card da mão
   const withDec = new Set(S.decisions.map(d => d.hand_id));
-  for (const h of S.hands) if (!withDec.has(h.id)) items.push({ d: { id: null, hand_id: h.id, status: "rever", tags: [], sort: 0 }, h });
+  for (const h of S.hands) if (!isInbox(h) && !withDec.has(h.id)) items.push({ d: { id: null, hand_id: h.id, status: "rever", tags: [], sort: 0 }, h });
   const order = new Map(S.hands.map((h, i) => [h.id, i]));
   return items.sort((a, b) => (order.get(a.h.id) - order.get(b.h.id)) || (a.d.sort - b.d.sort));
 }
@@ -806,7 +807,7 @@ function openHand(id, files = [], opts = {}) {
   H.lobby = lb ? { id: lb.id, path: lb.path, url: S.urls.get(lb.path) || "" } : null;
   H.pasteLobby = false;
 
-  $("#h-head").textContent = h ? "Mão" : (opts.doubt ? "Nova dúvida" : "Nova mão");
+  $("#h-head").textContent = h ? (isInbox(h) ? "Mão da caixa de entrada" : "Mão") : (opts.doubt ? "Nova dúvida" : "Nova mão");
   $("#h-date").value = h?.played_on || today();
   $("#h-site").value = h?.site || "";
   $("#h-tour").value = h?.tournament || "";
@@ -1358,5 +1359,74 @@ $("#wk-today").addEventListener("click", () => { weekRef = weekStart(today()); r
 // vira o dia sem precisar recarregar
 let lastDay = today();
 setInterval(() => { if (today() !== lastDay && S.user) { lastDay = today(); renderAll(); } }, 60000);
+
+/* ================= caixa de entrada (prints do atalho do PC) ================= */
+function renderInbox() {
+  const hs = S.hands.filter(isInbox);
+  $("#inbox-grid").innerHTML = hs.length ? hs.map(h => {
+    const imgs = imagesOf(h.id), first = imgs[0], url = first && S.urls.get(first.path);
+    const when = new Date(h.created_at);
+    const lb = lobbyOf(h.id);
+    return `<div class="hand" data-inbox="${h.id}" role="button" tabindex="0">
+      <div class="thumb">${url ? `<img src="${esc(url)}" alt="" loading="lazy">` : `<span class="noimg">?</span>`}<span class="n">${imgs.length} print${imgs.length === 1 ? "" : "s"}${lb ? " + lobby" : ""}</span></div>
+      <div class="body">
+        <div class="top"><span class="st rever" style="margin-left:0">na caixa</span><span class="muted" style="font-size:.8rem">${dayTitle(iso(when))}, ${when.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span></div>
+        <div class="row" style="justify-content:space-between">
+          <span class="muted" style="font-size:.84rem">Clique para legendar e salvar</span>
+          <button class="btn sm danger" type="button" data-inbox-del>Descartar</button>
+        </div>
+      </div></div>`;
+  }).join("") : `<p class="empty" style="grid-column:1/-1">Caixa vazia. Use <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F1</kbd> no PC para mandar prints para cá.</p>`;
+}
+$("#inbox-grid").addEventListener("click", async e => {
+  const card = e.target.closest("[data-inbox]"); if (!card) return;
+  const h = S.hands.find(x => x.id === card.dataset.inbox); if (!h) return;
+  const del = e.target.closest("[data-inbox-del]");
+  if (!del) { openHand(h.id); return; }
+  if (!del.hasAttribute("data-armed")) { del.setAttribute("data-armed", ""); del.textContent = "Confirmar"; return; }
+  try {
+    const paths = S.images.filter(i => i.hand_id === h.id).map(i => i.path);
+    if (paths.length) await sb.storage.from("hands").remove(paths);
+    await q(sb.from("hands").delete().eq("id", h.id), "descartar a mão");
+    S.hands = S.hands.filter(x => x.id !== h.id);
+    S.images = S.images.filter(i => i.hand_id !== h.id);
+    toast("Mão descartada"); renderAll();
+  } catch { }
+});
+$("#inbox-grid").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.matches("[data-inbox]")) e.target.click(); });
+
+// busca prints novos enviados pelo PC: ao voltar para a aba, ao abrir a caixa e a cada 20s com ela aberta
+let inboxBusy = false;
+async function refreshInbox() {
+  if (!S.user || inboxBusy) return;
+  inboxBusy = true;
+  try {
+    const { data: hs, error } = await sb.from("hands").select("*").eq("status", "inbox").order("created_at", { ascending: false });
+    if (error) return;
+    const ids = hs.map(h => h.id);
+    let imgs = [];
+    if (ids.length) {
+      const r = await sb.from("hand_images").select("*").in("hand_id", ids).order("sort");
+      if (r.error) return;
+      imgs = r.data;
+    }
+    const before = JSON.stringify([S.hands.filter(isInbox).map(h => h.id), S.images.filter(i => ids.includes(i.hand_id)).map(i => i.id)]);
+    const known = new Set(S.hands.map(h => h.id));
+    // não mexe na mão que está aberta no editor
+    const editing = dlgHand.open ? H.hand?.id : null;
+    S.hands = S.hands.filter(h => !isInbox(h) || ids.includes(h.id) || h.id === editing);
+    for (const h of hs) { if (h.id === editing) continue; if (known.has(h.id)) S.hands = S.hands.map(x => x.id === h.id ? h : x); else S.hands.unshift(h); }
+    S.hands.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    S.images = S.images.filter(i => !ids.includes(i.hand_id) || i.hand_id === editing).concat(imgs.filter(i => i.hand_id !== editing));
+    await signImages(imgs.map(i => i.path));
+    const after = JSON.stringify([S.hands.filter(isInbox).map(h => h.id), S.images.filter(i => ids.includes(i.hand_id)).map(i => i.id)]);
+    if (before !== after) renderAll();
+  } finally { inboxBusy = false; }
+}
+$("#inbox-refresh").addEventListener("click", () => refreshInbox().then(() => toast("Caixa atualizada")));
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshInbox(); });
+window.addEventListener("focus", () => refreshInbox());
+window.addEventListener("hashchange", () => { if (location.hash === "#entrada") refreshInbox(); });
+setInterval(() => { if (!document.hidden && view === "entrada") refreshInbox(); }, 20000);
 
 boot();
