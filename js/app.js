@@ -20,6 +20,13 @@ const suit = c => `<span class="suit c-${cat(c)}" title="${CATS[cat(c)][0]}">${C
 const STREETS = { preflop: "Pré-flop", flop: "Flop", turn: "Turn", river: "River" };
 const streetTag = s => STREETS[s] ? `<span class="street ${s}">${STREETS[s]}</span>` : "";
 
+// só troca o HTML se mudou: evita recriar os prints (e o "pisca") quando nada mudou
+function setHTML(target, html) {
+  const el = typeof target === "string" ? document.querySelector(target) : target;
+  if (!el || el._html === html) return;
+  el.innerHTML = html; el._html = html;
+}
+
 let toastTimer;
 function toast(msg, err = false) {
   const t = $("#toast"); t.textContent = msg; t.className = "toast" + (err ? " err" : ""); t.hidden = false;
@@ -148,7 +155,13 @@ $("#side-close").addEventListener("click", closeSide);
 $("#scrim").addEventListener("click", closeSide);
 
 /* ================= render ================= */
-function renderAll() { renderAvisos(); renderShares(); renderBadges(); renderToday(); renderAgenda(); renderPregrind(); renderInbox(); renderLibrary(); renderPlantao(); renderLeaks(); renderTags(); if (view === "duvida") renderDoubt(); }
+// desenha só a tela que está aberta (as outras são desenhadas quando você entra nelas)
+const RENDER = {
+  hoje: () => renderToday(), agenda: () => renderAgenda(), pregrind: () => renderPregrind(), avisos: () => renderAvisos(),
+  entrada: () => renderInbox(), maos: () => renderLibrary(), duvida: () => renderDoubt(), plantao: () => renderPlantao(),
+  leaks: () => renderLeaks(), ajustes: () => { renderTags(); renderShares(); }
+};
+function renderAll() { renderBadges(); (RENDER[view] || (() => { }))(); }
 
 function counts() {
   return {
@@ -175,25 +188,25 @@ function renderToday() {
   const title = parse(t).toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
   $("#today-title").textContent = title.charAt(0).toUpperCase() + title.slice(1);
   const c = counts();
-  $("#kpis").innerHTML = `
+  setHTML("#kpis", `
     <a class="kpi gold" href="#maos"><b>${c.rever}</b><span>Dúvidas abertas</span></a>
     <a class="kpi" href="#plantao"><b>${c.plantao}</b><span>Dúvidas pro plantão</span></a>
-    <a class="kpi green" href="#pregrind"><b>${c.pregrind}</b><span>Lembretes do pré-grind</span></a>`;
+    <a class="kpi green" href="#pregrind"><b>${c.pregrind}</b><span>Lembretes do pré-grind</span></a>`);
   const evs = eventsOn(t);
-  $("#today-events").innerHTML = evs.length ? evs.map(evRow).join("") : `<li style="display:block;cursor:default"><p class="empty">Nada agendado para hoje.</p></li>`;
+  setHTML("#today-events", evs.length ? evs.map(evRow).join("") : `<li style="display:block;cursor:default"><p class="empty">Nada agendado para hoje.</p></li>`);
   let next = "";
   for (let i = 1; i <= 3; i++) {
     const d = addDays(t, i), e = eventsOn(d);
     if (e.length) next += `<p class="next-h">${parse(d).toLocaleDateString("pt-BR", { weekday: "long", day: "numeric" })}</p><ul class="timeline">${e.map(evRow).join("")}</ul>`;
   }
-  $("#next-days").innerHTML = next;
+  setHTML("#next-days", next);
   const tasks = S.tasks.filter(k => !k.done || k.done_on === t).sort((a, b) => a.done - b.done);
-  $("#task-list").innerHTML = tasks.length ? tasks.map(k => `
+  setHTML("#task-list", tasks.length ? tasks.map(k => `
     <li class="${k.done ? "done" : ""}" data-task="${k.id}">
       <input type="checkbox" ${k.done ? "checked" : ""} aria-label="Concluir">
       ${suit(k.category)}<span class="txt">${esc(k.text)}</span>
       <button class="x" type="button" data-del-task aria-label="Excluir">×</button></li>`).join("")
-    : `<li style="display:block"><p class="empty">Sem tarefas pendentes.</p></li>`;
+    : `<li style="display:block"><p class="empty">Sem tarefas pendentes.</p></li>`);
 }
 
 /* ---- agenda ---- */
@@ -211,18 +224,18 @@ function renderAgenda() {
       ${eventsOn(d).map(e => `<button type="button" class="ev c-${cat(e.category)}" data-ev="${e.id}">${e.start_time ? `<span class="tm">${e.start_time}${e.end_time ? "–" + e.end_time : ""}</span>` : ""}<span class="tt">${CATS[cat(e.category)][1]} ${esc(e.title)}</span></button>`).join("")}
       <button type="button" class="add" data-new-event="${d}">+ adicionar</button></div>`;
   }
-  $("#week").innerHTML = html;
+  setHTML("#week", html);
 }
 
 /* ---- pré-grind ---- */
 function renderPregrind() {
   const items = [...S.pregrind].sort((a, b) => a.done - b.done);
-  $("#pg-list").innerHTML = items.length ? items.map(p => `
+  setHTML("#pg-list", items.length ? items.map(p => `
     <li class="${p.done ? "done" : ""}" data-pg="${p.id}">
       <input type="checkbox" ${p.done ? "checked" : ""} aria-label="Marcar">
       <span class="txt">${esc(p.text)}</span>
       <button class="x" type="button" data-del-pg aria-label="Excluir">×</button></li>`).join("")
-    : `<li style="display:block"><p class="empty">Nenhum lembrete. Anote aqui ajustes que você quer aplicar no próximo grind.</p></li>`;
+    : `<li style="display:block"><p class="empty">Nenhum lembrete. Anote aqui ajustes que você quer aplicar no próximo grind.</p></li>`);
 }
 
 /* ---- biblioteca (um card por dúvida) ---- */
@@ -249,7 +262,7 @@ function decCard({ d, h }) {
   const ncm = d.id ? commentsOf(d.id).length : 0;
   const nNew = d.id ? S.friend.filter(c => c.decision_id === d.id && !c.read).length : 0;
   return `<button type="button" class="hand ${SEL.ids.has(d.id) ? "picked" : ""}" data-hand="${h.id}" ${d.id ? `data-dec="${d.id}"` : ""}>
-    <div class="thumb">${url ? `<img src="${esc(url)}" alt="" loading="lazy">` : `<span class="noimg">?</span>`}${imgs.length > 1 ? `<span class="n">${imgs.length} prints</span>` : ""}</div>
+    <div class="thumb">${url ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async">` : `<span class="noimg">?</span>`}${imgs.length > 1 ? `<span class="n">${imgs.length} prints</span>` : ""}</div>
     <div class="body">
       <div class="top">${streetTag(d.street)}${h.hero_cards ? `<span class="cards">${esc(h.hero_cards.split(" · ")[0])}</span>` : ""}${h.position ? `<span class="pos">${esc(h.position)}</span>` : ""}
         ${nNew ? `<span class="newc">💬 ${nNew} novo${nNew === 1 ? "" : "s"}</span>` : ""}${d.plantao ? `<span class="st pl">plantão</span>` : ""}<span class="st ${d.status === "revisada" ? "revisada" : "rever"}">${d.status === "revisada" ? "resolvida" : "aberta"}</span></div>
@@ -266,7 +279,7 @@ function renderLibrary() {
   $("#f-leak").innerHTML = `<option value="">Qualquer leak</option>` + S.leaks.map(l => `<option value="${l.id}" ${F.leak === l.id ? "selected" : ""}>${esc(l.title)}</option>`).join("");
   const list = filteredItems();
   if (!list.length) {
-    $("#hand-grid").innerHTML = `<p class="empty">${S.hands.length ? "Nenhuma dúvida com esses filtros." : "Nenhuma mão ainda. Cole um print aqui ou clique em “+ Nova mão”."}</p>`;
+    setHTML("#hand-grid", `<p class="empty">${S.hands.length ? "Nenhuma dúvida com esses filtros." : "Nenhuma mão ainda. Cole um print aqui ou clique em “+ Nova mão”."}</p>`);
     return;
   }
   // agrupa pelo dia em que a mão foi enviada (só aparecem dias que têm mãos)
@@ -279,7 +292,7 @@ function renderLibrary() {
   }
   groups.sort((a, b) => b.key.localeCompare(a.key));
   const forced = !!(F.q || F.tag || F.site || F.leak); // com busca/filtro, abre tudo
-  $("#hand-grid").innerHTML = groups.map((g, i) => {
+  setHTML("#hand-grid", groups.map((g, i) => {
     const open = forced || (g.key in dayOpen ? dayOpen[g.key] : i < 3);
     const nOpen = g.items.filter(x => x.d.status !== "revisada").length;
     const nHands = new Set(g.items.map(x => x.h.id)).size;
@@ -293,7 +306,7 @@ function renderLibrary() {
       </button>
       ${open ? `<div class="hand-grid">${g.items.map(decCard).join("")}</div>` : ""}
     </section>`;
-  }).join("");
+  }).join(""));
 }
 let dayOpen = (() => { try { return JSON.parse(localStorage.getItem("dm-dias") || "{}"); } catch { return {}; } })();
 function dayTitle(k) {
@@ -351,38 +364,38 @@ function renderPlantao() {
   const items = libraryItems().filter(({ d }) => d.plantao);
   const open = items.filter(({ d }) => !isAnswered(d)), done = items.filter(({ d }) => isAnswered(d)).slice(0, 40);
   $("#pl-count").textContent = open.length ? `(${open.length})` : "";
-  $("#pl-open").innerHTML = open.length ? open.map(decCard).join("") : `<p class="empty" style="grid-column:1/-1">Nada pendente. Marque “Levar pro plantão” numa dúvida ou crie uma dúvida sem mão.</p>`;
-  $("#pl-done").innerHTML = done.length ? done.map(decCard).join("") : `<p class="empty" style="grid-column:1/-1">As respostas do coach vão aparecer aqui.</p>`;
+  setHTML("#pl-open", open.length ? open.map(decCard).join("") : `<p class="empty" style="grid-column:1/-1">Nada pendente. Marque “Levar pro plantão” numa dúvida ou crie uma dúvida sem mão.</p>`);
+  setHTML("#pl-done", done.length ? done.map(decCard).join("") : `<p class="empty" style="grid-column:1/-1">As respostas do coach vão aparecer aqui.</p>`);
 }
 
 /* ---- leaks ---- */
 function renderLeaks() {
-  $("#leak-list").innerHTML = S.leaks.length ? S.leaks.map(l => {
+  setHTML("#leak-list", S.leaks.length ? S.leaks.map(l => {
     const n = S.decisions.filter(d => d.leak_id === l.id).length;
     return `<li class="${l.status === "corrigido" ? "fixed" : ""}" data-leak="${l.id}">
       <input type="checkbox" ${l.status === "corrigido" ? "checked" : ""} title="Marcar como corrigido" aria-label="Corrigido" style="width:18px;height:18px;accent-color:var(--accent)">
       <div style="min-width:0"><div class="t">${esc(l.title)}</div>${l.description ? `<div class="d">${esc(l.description)}</div>` : ""}</div>
       <button class="cnt" type="button" data-leak-hands>${n} ${n === 1 ? "dúvida" : "dúvidas"}</button>
       <button class="x" type="button" data-del-leak aria-label="Excluir">×</button></li>`;
-  }).join("") : `<li style="display:block;border:0"><p class="empty">Nenhum leak anotado.</p></li>`;
+  }).join("") : `<li style="display:block;border:0"><p class="empty">Nenhum leak anotado.</p></li>`);
 }
 
 /* ---- ajustes ---- */
 function renderShares() {
   const el = $("#share-list"); if (!el) return;
-  el.innerHTML = S.shares.length ? S.shares.map(sh => `
+  setHTML(el, S.shares.length ? S.shares.map(sh => `
     <div class="sh ${sh.revoked ? "off" : ""}" data-share="${sh.id}">
       <div class="t"><b>${esc(sh.title || "Estudo compartilhado")}</b><span>${sh.decision_ids.length} dúvida${sh.decision_ids.length === 1 ? "" : "s"} · ${shortDate(iso(new Date(sh.created_at)))}${sh.revoked ? " · desativado" : ""}</span></div>
       ${sh.revoked ? `<button class="btn sm" type="button" data-sh-act="on">Reativar</button>` : `
         <button class="btn sm" type="button" data-sh-act="copy">Copiar link</button>
         <a class="btn sm" href="${shareUrl(sh.token)}" target="_blank" rel="noopener">Abrir</a>
         <button class="btn sm danger" type="button" data-sh-act="off">Desativar</button>`}
-    </div>`).join("") : `<p class="muted" style="margin:0;font-size:.88rem">Nenhum link ainda. Use “🔗 Compartilhar” numa dúvida ou “Compartilhar várias” na biblioteca.</p>`;
+    </div>`).join("") : `<p class="muted" style="margin:0;font-size:.88rem">Nenhum link ainda. Use “🔗 Compartilhar” numa dúvida ou “Compartilhar várias” na biblioteca.</p>`);
 }
 
 function renderTags() {
-  $("#tag-admin").innerHTML = S.tags.map(t => `<span>${esc(t.name)}<button class="x" type="button" data-del-tag="${t.id}" aria-label="Remover ${esc(t.name)}">×</button></span>`).join("")
-    || `<p class="empty">Nenhum spot.</p>`;
+  setHTML("#tag-admin", S.tags.map(t => `<span>${esc(t.name)}<button class="x" type="button" data-del-tag="${t.id}" aria-label="Remover ${esc(t.name)}">×</button></span>`).join("")
+    || `<p class="empty">Nenhum spot.</p>`);
 }
 function fillStaticSelects() {
   const siteOpts = SITES.map(s => `<option>${esc(s)}</option>`).join("");
@@ -421,7 +434,7 @@ function renderDoubt() {
   const d = S.decisions.find(x => x.id === currentDec);
   const backLbl = backTo === "plantao" ? "Plantão" : "Biblioteca";
   if (!d) {
-    el.innerHTML = `<div class="dv-bar"><a class="btn sm" href="#${backTo}">← ${backLbl}</a></div><p class="empty">Essa dúvida não existe mais.</p>`;
+    setHTML(el, `<div class="dv-bar"><a class="btn sm" href="#${backTo}">← ${backLbl}</a></div><p class="empty">Essa dúvida não existe mais.</p>`);
     return;
   }
   const h = S.hands.find(x => x.id === d.hand_id) || {};
@@ -436,7 +449,7 @@ function renderDoubt() {
   const leak = S.leaks.find(l => l.id === d.leak_id);
   const fact = (label, val, wide) => val ? `<div class="${wide ? "wide" : ""}"><dt>${label}</dt><dd>${val}</dd></div>` : "";
 
-  el.innerHTML = `
+  setHTML(el, `
     <div class="dv-bar">
       <a class="btn sm" href="#${backTo}">← ${backLbl}</a>
       <span class="spacer"></span>
@@ -522,7 +535,7 @@ function renderDoubt() {
         ${decs.length > 1 ? `<div class="card"><h2>Outras dúvidas desta mão</h2>
           <div class="stack">${decs.map((x, k) => x.id === d.id ? "" : `<button type="button" class="btn ghost" style="justify-content:flex-start;white-space:normal;text-align:left" data-go="${x.id}">${streetTag(x.street)} ${esc(x.question || "Dúvida " + (k + 1))}${x.status === "revisada" ? ` <span class="st revisada">resolvida</span>` : ""}</button>`).join("")}</div></div>` : ""}
       </div>
-    </div>`;
+    </div>`);
 }
 
 // edição de comentário: texto, tirar prints e adicionar prints novos
@@ -1461,12 +1474,12 @@ function renderInbox() {
   $("#inbox-send-all").hidden = $("#inbox-del-all").hidden = !hs.length;
   $("#inbox-send-all").textContent = `Enviar ${hs.length > 1 ? "as " + hs.length : "a mão"} para a biblioteca`;
   const da = $("#inbox-del-all"); da.removeAttribute("data-armed"); da.textContent = hs.length > 1 ? `Descartar as ${hs.length}` : "Descartar";
-  $("#inbox-grid").innerHTML = hs.length ? hs.map(h => {
+  setHTML("#inbox-grid", hs.length ? hs.map(h => {
     const imgs = imagesOf(h.id), first = imgs[0], url = first && S.urls.get(first.path);
     const when = new Date(h.created_at);
     const lb = lobbyOf(h.id);
     return `<div class="hand" data-inbox="${h.id}" role="button" tabindex="0">
-      <div class="thumb">${url ? `<img src="${esc(url)}" alt="" loading="lazy">` : `<span class="noimg">?</span>`}<span class="n">${imgs.length} print${imgs.length === 1 ? "" : "s"}${lb ? " + lobby" : ""}</span></div>
+      <div class="thumb">${url ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async">` : `<span class="noimg">?</span>`}<span class="n">${imgs.length} print${imgs.length === 1 ? "" : "s"}${lb ? " + lobby" : ""}</span></div>
       <div class="body">
         <div class="top"><span class="st rever" style="margin-left:0">na caixa</span><span class="muted" style="font-size:.8rem">${dayTitle(iso(when))}, ${when.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span></div>
         <div class="row" style="justify-content:space-between">
@@ -1474,7 +1487,7 @@ function renderInbox() {
           <button class="btn sm danger" type="button" data-inbox-del>Descartar</button>
         </div>
       </div></div>`;
-  }).join("") : `<p class="empty" style="grid-column:1/-1">Caixa vazia. Use <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> no PC para mandar prints para cá.</p>`;
+  }).join("") : `<p class="empty" style="grid-column:1/-1">Caixa vazia. Use <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> no PC para mandar prints para cá.</p>`);
 }
 $("#inbox-grid").addEventListener("click", async e => {
   const card = e.target.closest("[data-inbox]"); if (!card) return;
@@ -1653,7 +1666,7 @@ function renderAvisos() {
   const el = $("#av-list"); if (!el) return;
   const list = [...S.friend].filter(c => !c.is_owner).sort((a, b) => (a.read - b.read) || b.created_at.localeCompare(a.created_at)).slice(0, 80);
   $("#av-read-all").hidden = !S.friend.some(c => !c.read);
-  el.innerHTML = list.length ? list.map(c => {
+  setHTML(el, list.length ? list.map(c => {
     const d = S.decisions.find(x => x.id === c.decision_id);
     const pin = c.pin_id ? S.comments.find(x => x.id === c.pin_id) : null;
     return `<button type="button" class="av ${c.read ? "" : "unread"}" data-av="${c.decision_id}">
@@ -1662,7 +1675,7 @@ function renderAvisos() {
         <p class="body">${esc(c.body)}</p>
         <div class="where">em: ${esc(d?.question || "dúvida")}${pin ? ` · sobre a conclusão “${esc((pin.body || "print").slice(0, 60))}”` : ""}</div></div>
     </button>`;
-  }).join("") : `<p class="muted" style="margin:0">Nenhum aviso ainda. Quando seus amigos comentarem num link compartilhado, aparece aqui.</p>`;
+  }).join("") : `<p class="muted" style="margin:0">Nenhum aviso ainda. Quando seus amigos comentarem num link compartilhado, aparece aqui.</p>`);
 }
 $("#av-list").addEventListener("click", e => {
   const a = e.target.closest("[data-av]"); if (!a) return;
