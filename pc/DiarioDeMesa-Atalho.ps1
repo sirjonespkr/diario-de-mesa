@@ -76,14 +76,17 @@ function Save-State($st) { $st | ConvertTo-Json -Compress | Set-Content -Path $S
 
 # ---------------- login (sessão própria do PC, guardada criptografada pelo Windows) ----------------
 function Save-Session([string]$rt) {
-  ConvertTo-SecureString $rt -AsPlainText -Force | ConvertFrom-SecureString | Set-Content -Path $SESSION_FILE
+  $enc = ConvertTo-SecureString $rt -AsPlainText -Force | ConvertFrom-SecureString
+  [IO.File]::WriteAllText($SESSION_FILE, $enc)
 }
 function Load-Session {
   if (-not (Test-Path $SESSION_FILE)) { return $null }
   try {
-    $ss = Get-Content $SESSION_FILE -Raw | ConvertTo-SecureString
+    # .Trim(): o arquivo termina com uma quebra de linha, que impedia de ler a sessão (e pedia login toda vez)
+    $txt = (Get-Content $SESSION_FILE -Raw).Trim()
+    $ss = ConvertTo-SecureString $txt
     return [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($ss))
-  } catch { return $null }
+  } catch { Log "não li a sessão salva: $($_.Exception.Message)"; return $null }
 }
 function Show-Login([string]$msg) {
   $f = New-Object System.Windows.Forms.Form
