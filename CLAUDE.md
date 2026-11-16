@@ -23,7 +23,7 @@ Site pessoal (um único usuário, jogador profissional de poker, MTT) para organ
 ## Atalho no PC (pasta `pc/`)
 - `pc/DiarioDeMesa-Atalho.ps1` (PowerShell 5.1, salvo em UTF-8 com BOM): registra Win+Shift+A (print, junta em até 3 min), Win+Shift+Z (mão nova) e Win+Shift+X (lobby), com alternativas automáticas se estiverem ocupados. Abre o recorte do Windows (`ms-screenclip:`), envia a imagem direto ao Supabase com sessão própria (refresh token guardado com DPAPI em `%APPDATA%\DiarioDeMesa`), cria `hands` com `status = inbox` e `source = atalho`. Não usa IA.
 - `Iniciar atalho.vbs` roda escondido; `Iniciar com o Windows.cmd` cria o atalho de inicialização.
-- No site, a Caixa de entrada (`#entrada`) lista as mãos `inbox`; a biblioteca as ignora. Salvar a mão no editor tira ela da caixa.
+- No site, a Caixa de entrada (`#entrada`) lista as mãos `inbox`; a biblioteca as ignora. Salvar a mão no editor tira ela da caixa. "Enviar todas para a biblioteca" cria uma dúvida por print (legenda = pergunta, sem IA) e muda `status` para `rever`; "Descartar todas" apaga as mãos e os prints.
 
 ## Janelas
 - Todas as janelas (`<dialog>`) fecham ao clicar fora ou com Esc. Janelas com formulário registram uma verificação em `dirtyChecks`; se houver alteração não salva, aparece o aviso "Descartar / Continuar editando" em vez de fechar.

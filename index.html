@@ -134,7 +134,11 @@
       <section class="view" id="v-entrada" hidden>
         <div class="page-h">
           <div><div class="eyebrow">Estudo</div><h1>Caixa de entrada</h1><p class="muted">Prints enviados pelo atalho do PC (Win+Shift+A). Nada aqui passou pela IA. Abra uma mão, escreva as legendas e salve para ela ir para a biblioteca.</p></div>
-          <button class="btn sm" id="inbox-refresh">↻ Atualizar</button>
+          <div class="row">
+            <button class="btn sm" id="inbox-refresh">↻ Atualizar</button>
+            <button class="btn sm danger" id="inbox-del-all" hidden>Descartar todas</button>
+            <button class="btn sm primary" id="inbox-send-all" hidden>Enviar todas para a biblioteca</button>
+          </div>
         </div>
         <div class="hand-grid" id="inbox-grid"></div>
       </section>

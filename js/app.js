@@ -1363,6 +1363,9 @@ setInterval(() => { if (today() !== lastDay && S.user) { lastDay = today(); rend
 /* ================= caixa de entrada (prints do atalho do PC) ================= */
 function renderInbox() {
   const hs = S.hands.filter(isInbox);
+  $("#inbox-send-all").hidden = $("#inbox-del-all").hidden = !hs.length;
+  $("#inbox-send-all").textContent = `Enviar ${hs.length > 1 ? "as " + hs.length : "a mão"} para a biblioteca`;
+  const da = $("#inbox-del-all"); da.removeAttribute("data-armed"); da.textContent = hs.length > 1 ? `Descartar as ${hs.length}` : "Descartar";
   $("#inbox-grid").innerHTML = hs.length ? hs.map(h => {
     const imgs = imagesOf(h.id), first = imgs[0], url = first && S.urls.get(first.path);
     const when = new Date(h.created_at);
@@ -1394,6 +1397,48 @@ $("#inbox-grid").addEventListener("click", async e => {
   } catch { }
 });
 $("#inbox-grid").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.matches("[data-inbox]")) e.target.click(); });
+
+// manda as mãos da caixa para a biblioteca: cada print vira uma dúvida (legenda = pergunta). Sem IA.
+async function sendInboxToLibrary(hs) {
+  if (!hs.length) return;
+  const rows = [];
+  for (const h of hs) {
+    if (decisionsOf(h.id).length) continue;
+    const imgs = imagesOf(h.id);
+    const base = { user_id: S.user.id, hand_id: h.id, status: "rever", tags: [] };
+    if (!imgs.length) rows.push({ ...base, id: uuid(), sort: 0 });
+    imgs.forEach((im, k) => rows.push({ ...base, id: uuid(), image_id: im.id, sort: k, question: (im.caption || "").trim() || null }));
+  }
+  if (rows.length) await q(sb.from("decisions").insert(rows), "criar as dúvidas");
+  const ids = hs.map(h => h.id);
+  await q(sb.from("hands").update({ status: "rever" }).in("id", ids), "enviar para a biblioteca");
+  S.decisions = S.decisions.concat(rows.map(r => ({ street: null, situation: null, question: null, conclusion: null, plantao: false, plantao_answer: null, leak_id: null, image_id: null, created_at: new Date().toISOString(), ...r })));
+  S.hands = S.hands.map(h => ids.includes(h.id) ? { ...h, status: "rever" } : h);
+}
+$("#inbox-send-all").addEventListener("click", async e => {
+  const hs = S.hands.filter(isInbox); if (!hs.length) return;
+  const b = e.currentTarget; b.disabled = true; b.textContent = "Enviando…";
+  try {
+    await sendInboxToLibrary(hs);
+    toast(`${hs.length} mã${hs.length === 1 ? "o enviada" : "os enviadas"} para a biblioteca`);
+  } catch { }
+  b.disabled = false; renderAll();
+});
+$("#inbox-del-all").addEventListener("click", async e => {
+  const b = e.currentTarget, hs = S.hands.filter(isInbox); if (!hs.length) return;
+  if (!b.hasAttribute("data-armed")) { b.setAttribute("data-armed", ""); b.textContent = `Confirmar: apagar ${hs.length} mã${hs.length === 1 ? "o" : "os"}`; return; }
+  b.disabled = true;
+  try {
+    const ids = hs.map(h => h.id);
+    const paths = S.images.filter(i => ids.includes(i.hand_id)).map(i => i.path);
+    for (let i = 0; i < paths.length; i += 100) await sb.storage.from("hands").remove(paths.slice(i, i + 100));
+    await q(sb.from("hands").delete().in("id", ids), "descartar as mãos");
+    S.hands = S.hands.filter(h => !ids.includes(h.id));
+    S.images = S.images.filter(i => !ids.includes(i.hand_id));
+    toast("Caixa de entrada limpa");
+  } catch { }
+  b.disabled = false; renderAll();
+});
 
 // busca prints novos enviados pelo PC: ao voltar para a aba, ao abrir a caixa e a cada 20s com ela aberta
 let inboxBusy = false;
