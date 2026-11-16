@@ -260,9 +260,54 @@ function renderLibrary() {
   $("#f-tag").innerHTML = `<option value="">Todos os spots</option>` + S.tags.map(t => `<option ${F.tag === t.name ? "selected" : ""}>${esc(t.name)}</option>`).join("");
   $("#f-leak").innerHTML = `<option value="">Qualquer leak</option>` + S.leaks.map(l => `<option value="${l.id}" ${F.leak === l.id ? "selected" : ""}>${esc(l.title)}</option>`).join("");
   const list = filteredItems();
-  $("#hand-grid").innerHTML = list.length ? list.map(decCard).join("")
-    : `<p class="empty" style="grid-column:1/-1">${S.hands.length ? "Nenhuma dúvida com esses filtros." : "Nenhuma mão ainda. Cole um print aqui ou clique em “+ Nova mão”."}</p>`;
+  if (!list.length) {
+    $("#hand-grid").innerHTML = `<p class="empty">${S.hands.length ? "Nenhuma dúvida com esses filtros." : "Nenhuma mão ainda. Cole um print aqui ou clique em “+ Nova mão”."}</p>`;
+    return;
+  }
+  // agrupa pelo dia em que a mão foi enviada (só aparecem dias que têm mãos)
+  const groups = [];
+  for (const it of list) {
+    const k = iso(new Date(it.h.created_at));
+    let g = groups[groups.length - 1];
+    if (!g || g.key !== k) { g = { key: k, items: [] }; groups.push(g); }
+    g.items.push(it);
+  }
+  groups.sort((a, b) => b.key.localeCompare(a.key));
+  const forced = !!(F.q || F.tag || F.site || F.leak); // com busca/filtro, abre tudo
+  $("#hand-grid").innerHTML = groups.map((g, i) => {
+    const open = forced || (g.key in dayOpen ? dayOpen[g.key] : i < 3);
+    const nOpen = g.items.filter(x => x.d.status !== "revisada").length;
+    const nHands = new Set(g.items.map(x => x.h.id)).size;
+    const cnt = F.status === "rever" ? `${nOpen} aberta${nOpen === 1 ? "" : "s"}`
+      : F.status === "revisada" ? `${g.items.length} resolvida${g.items.length === 1 ? "" : "s"}`
+      : nOpen ? `${nOpen} aberta${nOpen === 1 ? "" : "s"} de ${g.items.length}` : "tudo resolvido";
+    return `<section>
+      <button type="button" class="day-h2" data-day="${g.key}" aria-expanded="${open}">
+        <span class="chev">▾</span><b>${dayTitle(g.key)}</b><span class="dt">${dayDate(g.key)}</span>
+        <span class="spacer"></span><span class="cnt">${nHands} mão${nHands === 1 ? "" : "s"} · </span><span class="cnt ${nOpen && F.status !== "revisada" ? "has-open" : ""}">${cnt}</span>
+      </button>
+      ${open ? `<div class="hand-grid">${g.items.map(decCard).join("")}</div>` : ""}
+    </section>`;
+  }).join("");
 }
+let dayOpen = (() => { try { return JSON.parse(localStorage.getItem("dm-dias") || "{}"); } catch { return {}; } })();
+function dayTitle(k) {
+  const t = today();
+  if (k === t) return "Hoje";
+  if (k === addDays(t, -1)) return "Ontem";
+  const w = parse(k).toLocaleDateString("pt-BR", { weekday: "long" });
+  return w.charAt(0).toUpperCase() + w.slice(1);
+}
+function dayDate(k) {
+  const d = parse(k), sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString("pt-BR", sameYear ? { day: "2-digit", month: "2-digit" } : { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+$("#hand-grid").addEventListener("click", e => {
+  const b = e.target.closest("[data-day]"); if (!b) return;
+  dayOpen[b.dataset.day] = b.getAttribute("aria-expanded") !== "true";
+  try { localStorage.setItem("dm-dias", JSON.stringify(dayOpen)); } catch { }
+  renderLibrary();
+});
 function filteredItems() {
   const words = F.q.toLowerCase().split(/\s+/).filter(Boolean);
   return libraryItems().filter(({ d, h }) => {
@@ -699,7 +744,39 @@ function armDelete(btn, label, onConfirm) {
     btn.setAttribute("data-armed", ""); btn.textContent = "Confirmar exclusão";
   };
 }
-$$("dialog [data-close]").forEach(b => b.addEventListener("click", () => b.closest("dialog").close()));
+/* ---- janelas: clicar fora ou Esc fecham; se houver algo não salvo, pergunta antes ---- */
+const dirtyChecks = new Map(); // id da janela -> () => tem alterações não salvas?
+function requestClose(dlg) {
+  const check = dirtyChecks.get(dlg.id);
+  if (check && check()) { showUnsaved(dlg); return; }
+  dlg.close();
+}
+function showUnsaved(dlg) {
+  let bar = dlg.querySelector(".unsaved");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.className = "unsaved"; bar.setAttribute("role", "alert");
+    bar.innerHTML = `<span>Você tem alterações não salvas.</span><button type="button" class="btn sm danger" data-unsaved="discard">Descartar</button><button type="button" class="btn sm primary" data-unsaved="stay">Continuar editando</button>`;
+    (dlg.querySelector("form") || dlg).prepend(bar);
+    bar.addEventListener("click", e => {
+      const a = e.target.closest("[data-unsaved]")?.dataset.unsaved; if (!a) return;
+      bar.hidden = true;
+      if (a === "discard") dlg.close();
+    });
+  }
+  bar.hidden = false;
+  bar.querySelector("[data-unsaved=stay]").focus();
+}
+$$("dialog").forEach(dlg => {
+  let downOutside = false;
+  const outside = e => { const r = dlg.getBoundingClientRect(); return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom; };
+  // só fecha se o clique começou E terminou fora (arrastar uma seleção de texto para fora não fecha)
+  dlg.addEventListener("pointerdown", e => { downOutside = e.target === dlg && outside(e); });
+  dlg.addEventListener("click", e => { if (downOutside && e.target === dlg && outside(e)) requestClose(dlg); downOutside = false; });
+  dlg.addEventListener("cancel", e => { e.preventDefault(); requestClose(dlg); });
+  dlg.addEventListener("close", () => { const bar = dlg.querySelector(".unsaved"); if (bar) bar.hidden = true; });
+});
+$$("dialog [data-close]").forEach(b => b.addEventListener("click", () => requestClose(b.closest("dialog"))));
 
 /* ================= editor da mão ================= */
 // imgs: [{key, id?, path?, url, caption, origCaption, blob?, removed}]
@@ -743,6 +820,7 @@ function openHand(id, files = [], opts = {}) {
   if (h) armDelete($("#h-del"), "Excluir mão", deleteHand);
   aiMsg(aiOff ? "Leitura com IA desativada (falta a chave da IA na Vercel)." : "Cole os prints e escreva as legendas. A IA só lê quando você clicar em “Ler com IA”; se preferir, preencha à mão.", aiOff ? "warn" : "");
   renderGallery(); renderDecs(); renderLobbySlot();
+  handSnap = handSig();
   if (!dlgHand.open) dlgHand.showModal();
   if (files.length) addFiles(files);
   if (opts.focusDec) {
@@ -750,6 +828,16 @@ function openHand(id, files = [], opts = {}) {
     setTimeout(() => { const el = $$("#h-decs .dec")[i]; if (el) { el.scrollIntoView({ block: "center" }); el.classList.add("flash"); } }, 60);
   } else if (opts.doubt) setTimeout(() => $("#h-decs textarea[data-f=question]")?.focus(), 60);
 }
+
+let handSnap = "";
+function handSig() {
+  const f = ["#h-date", "#h-site", "#h-tour", "#h-cards", "#h-pos", "#h-stack", "#h-board", "#h-sit"].map(sel => $(sel).value);
+  return JSON.stringify([f,
+    H.imgs.map(i => [i.key, i.caption, !!i.removed]),
+    H.decs.map(d => [d.key, d.imgKey, d.street, d.situation, d.question, d.tags, d.conclusion, d.status, d.plantao, d.plantao_answer, d.leak_id]),
+    H.lobby ? [H.lobby.url, !!H.lobby.removed] : null, H.removedDecIds]);
+}
+dirtyChecks.set("dlg-hand", () => handSig() !== handSnap);
 
 /* ---- imagens ---- */
 async function compress(blob, max = 2000, quality = 0.9) {
@@ -1144,7 +1232,9 @@ document.addEventListener("drop", e => {
 });
 
 /* ================= agenda ================= */
-let editEv = null;
+let editEv = null, eventSnap = "";
+const eventSig = () => JSON.stringify(["#e-title", "#e-date", "#e-start", "#e-end", "#e-cat", "#e-note"].map(sel => $(sel).value));
+dirtyChecks.set("dlg-event", () => eventSig() !== eventSnap);
 function openEvent(id, day) {
   const e = id ? S.events.find(x => x.id === id) : null; editEv = e;
   $("#e-head").textContent = e ? "Editar evento" : "Novo evento";
@@ -1158,6 +1248,7 @@ function openEvent(id, day) {
   if (e) armDelete($("#e-del"), "Excluir", async () => {
     try { await q(sb.from("events").delete().eq("id", e.id), "excluir o evento"); S.events = S.events.filter(x => x.id !== e.id); $("#dlg-event").close(); renderAll(); } catch { }
   });
+  eventSnap = eventSig();
   $("#dlg-event").showModal();
 }
 $("#f-event").addEventListener("submit", async ev => {

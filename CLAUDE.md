@@ -16,9 +16,12 @@ Site pessoal (um único usuário, jogador profissional de poker, MTT) para organ
 - `hand_images`: prints da mão (`kind` = `mesa` ou `lobby`; prints com legenda começando por "lobby" viram `lobby` e a IA da mão ignora), com `caption` (legenda curta do jogador, estilo "cbet 1/3 C. Lead?").
 - `decisions`: as dúvidas da mão, uma por momento/print (`image_id`, street, situação, pergunta, spots, conclusão, status, plantão, leak). A biblioteca e o plantão mostram um card por dúvida.
 - `comments`: discussão de cada dúvida (texto, `images` = caminhos no bucket em `<user_id>/comments/<decision_id>/`, `pinned` = conclusão).
-- Telas: a Biblioteca lista dúvidas; clicar abre a tela da dúvida (`#duvida-<id>`) com print, discussão, resolver/reabrir e modo apresentar. O editor (diálogo) é só para criar ou editar a mão. No editor, a IA só lê os prints quando o usuário clica em "Ler com IA" (nada automático), e há um espaço para colar o print do lobby (salvo como `kind = lobby`).
+- Telas: a Biblioteca lista dúvidas agrupadas pelo dia de envio da mão (`hands.created_at`), com seções que abrem/fecham (estado em localStorage `dm-dias`); só aparecem dias com mãos; clicar abre a tela da dúvida (`#duvida-<id>`) com print, discussão, resolver/reabrir e modo apresentar. O editor (diálogo) é só para criar ou editar a mão. No editor, a IA só lê os prints quando o usuário clica em "Ler com IA" (nada automático), e há um espaço para colar o print do lobby (salvo como `kind = lobby`).
 - Status das dúvidas no banco: `rever` (aberta) e `revisada` (resolvida).
 - As colunas question/tags/conclusion/plantao/leak_id em `hands` são legado: foram migradas para `decisions` e não são mais usadas.
+
+## Janelas
+- Todas as janelas (`<dialog>`) fecham ao clicar fora ou com Esc. Janelas com formulário registram uma verificação em `dirtyChecks`; se houver alteração não salva, aparece o aviso "Descartar / Continuar editando" em vez de fechar.
 
 ## Regras
 - Todas as tabelas têm RLS `user_id = auth.uid()`. Prints ficam no bucket privado `hands`, em `<user_id>/<hand_id>/arquivo.jpg`.
