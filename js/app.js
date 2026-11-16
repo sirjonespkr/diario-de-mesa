@@ -454,7 +454,7 @@ function renderDoubt() {
           <div class="thread">
             ${cms.length ? cms.map(c => CE.id === c.id ? cmtEditor(c) : `
               <div class="cmt ${c.pinned ? "pinned" : ""}" data-cm="${c.id}">
-                <div class="cmt-h">${c.pinned ? `<span class="pin-lbl">📌 Conclusão</span>` : ""}<span>${fmtWhen(c.created_at)}${c.edited_at ? " · editado" : ""}</span><span class="spacer"></span>
+                <div class="cmt-h">${c.pinned ? `<span class="pin-lbl">📌 Conclusão</span>` : ""}<span>${fmtWhen(c.created_at)}</span><span class="spacer"></span>
                   <button type="button" data-cm-act="pin">${c.pinned ? "Desafixar" : "Fixar como conclusão"}</button>
                   <button type="button" data-cm-act="edit">Editar</button>
                   <button type="button" data-cm-act="del">Excluir</button></div>
@@ -629,7 +629,7 @@ $("#v-duvida").addEventListener("click", async e => {
         const r = await q(sb.from("comments").update({ body: body || null, images }).eq("id", c.id).select().single(), "salvar a edição");
         const removed = (c.images || []).filter(p => !images.includes(p));
         if (removed.length) await sb.storage.from("hands").remove(removed);
-        S.comments = S.comments.map(x => x.id === r.id ? { ...r, edited_at: true } : x);
+        S.comments = S.comments.map(x => x.id === r.id ? r : x);
         CE.files = CE.files.filter(f => !f.keepUrl); endEdit();
         toast("Comentário atualizado"); renderAll();
         return;
