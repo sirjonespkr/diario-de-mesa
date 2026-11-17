@@ -1474,16 +1474,23 @@ function renderInbox() {
   $("#inbox-send-all").hidden = $("#inbox-del-all").hidden = !hs.length;
   $("#inbox-send-all").textContent = `Enviar ${hs.length > 1 ? "as " + hs.length : "a mão"} para a biblioteca`;
   const da = $("#inbox-del-all"); da.removeAttribute("data-armed"); da.textContent = hs.length > 1 ? `Descartar as ${hs.length}` : "Descartar";
-  setHTML("#inbox-grid", hs.length ? hs.map(h => {
-    const imgs = imagesOf(h.id), first = imgs[0], url = first && S.urls.get(first.path);
+  setHTML("#inbox-grid", hs.length ? hs.map((h, k) => {
+    const imgs = imagesOf(h.id);
     const when = new Date(h.created_at);
     const lb = lobbyOf(h.id);
-    return `<div class="hand" data-inbox="${h.id}" role="button" tabindex="0">
-      <div class="thumb">${url ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async">` : `<span class="noimg">?</span>`}<span class="n">${imgs.length} print${imgs.length === 1 ? "" : "s"}${lb ? " + lobby" : ""}</span></div>
+    const older = hs[k + 1]; // a mão enviada antes desta (a lista vem da mais nova para a mais antiga)
+    const hhmm = d => new Date(d).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    return `<div class="hand inbox-card" data-inbox="${h.id}" role="button" tabindex="0">
+      <div class="ib-strip">
+        ${imgs.length ? imgs.map((im, i) => `${i ? `<button class="ib-cut" type="button" data-split="${im.id}" title="Separar: deste print em diante vira outra mão">✂</button>` : ""}
+          <div class="ib-img"><img src="${esc(S.urls.get(im.path) || "")}" alt="Print ${i + 1}" loading="lazy" decoding="async"><span>${i + 1} · ${new Date(im.created_at).toLocaleTimeString("pt-BR")}</span></div>`).join("")
+          : `<div class="ib-img"><span class="noimg">?</span></div>`}
+        ${lb ? `<div class="ib-img lobby"><img src="${esc(S.urls.get(lb.path) || "")}" alt="Lobby" loading="lazy" decoding="async"><span>lobby</span></div>` : ""}
+      </div>
       <div class="body">
-        <div class="top"><span class="st rever" style="margin-left:0">na caixa</span><span class="muted" style="font-size:.8rem">${dayTitle(iso(when))}, ${when.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span></div>
+        <div class="top"><span class="st rever" style="margin-left:0">na caixa</span><span class="muted" style="font-size:.8rem">${dayTitle(iso(when))}, ${hhmm(h.created_at)} · ${imgs.length} print${imgs.length === 1 ? "" : "s"}</span></div>
         <div class="row" style="justify-content:space-between">
-          <span class="muted" style="font-size:.84rem">Clique para legendar e salvar</span>
+          ${older ? `<button class="btn sm ghost" type="button" data-merge="${older.id}" title="Junta estes prints com a mão enviada antes (${hhmm(older.created_at)})">⤓ Juntar com a anterior</button>` : `<span class="muted" style="font-size:.84rem">Clique para legendar e salvar</span>`}
           <button class="btn sm danger" type="button" data-inbox-del>Descartar</button>
         </div>
       </div></div>`;
@@ -1492,6 +1499,10 @@ function renderInbox() {
 $("#inbox-grid").addEventListener("click", async e => {
   const card = e.target.closest("[data-inbox]"); if (!card) return;
   const h = S.hands.find(x => x.id === card.dataset.inbox); if (!h) return;
+  const split = e.target.closest("[data-split]");
+  if (split) { splitInboxHand(h, split.dataset.split); return; }
+  const merge = e.target.closest("[data-merge]");
+  if (merge) { mergeInboxHands(h, merge.dataset.merge); return; }
   const del = e.target.closest("[data-inbox-del]");
   if (!del) { openHand(h.id); return; }
   if (!del.hasAttribute("data-armed")) { del.setAttribute("data-armed", ""); del.textContent = "Confirmar"; return; }
@@ -1505,6 +1516,40 @@ $("#inbox-grid").addEventListener("click", async e => {
   } catch { }
 });
 $("#inbox-grid").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.matches("[data-inbox]")) e.target.click(); });
+
+// separa uma mão da caixa: o print escolhido e os seguintes viram outra mão
+async function splitInboxHand(h, imageId) {
+  const imgs = imagesOf(h.id);
+  const at = imgs.findIndex(i => i.id === imageId); if (at <= 0) return;
+  const moving = imgs.slice(at);
+  try {
+    const nh = await q(sb.from("hands").insert({ status: "inbox", source: h.source || "atalho", played_on: h.played_on, created_at: moving[0].created_at }).select().single(), "separar a mão");
+    for (let k = 0; k < moving.length; k++) {
+      await q(sb.from("hand_images").update({ hand_id: nh.id, sort: k }).eq("id", moving[k].id), "mover o print");
+    }
+    S.hands.push(nh); S.hands.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    S.images = S.images.map(i => { const k = moving.findIndex(m => m.id === i.id); return k >= 0 ? { ...i, hand_id: nh.id, sort: k } : i; });
+    toast(`Separado: ${moving.length} print${moving.length === 1 ? "" : "s"} viraram outra mão`); renderAll();
+  } catch { }
+}
+// junta os prints desta mão na mão enviada antes (o lobby vem junto)
+async function mergeInboxHands(h, olderId) {
+  const target = S.hands.find(x => x.id === olderId); if (!target) return;
+  const base = imagesOf(target.id).length;
+  const moving = S.images.filter(i => i.hand_id === h.id).sort((a, b) => a.sort - b.sort);
+  try {
+    let k = 0;
+    for (const im of moving) {
+      const sort = im.kind === "lobby" ? 999 : base + (k++);
+      await q(sb.from("hand_images").update({ hand_id: target.id, sort }).eq("id", im.id), "mover o print");
+      im.hand_id = target.id; im.sort = sort;
+    }
+    S.images = S.images.map(i => moving.find(m => m.id === i.id) || i);
+    await q(sb.from("hands").delete().eq("id", h.id), "juntar as mãos");
+    S.hands = S.hands.filter(x => x.id !== h.id);
+    toast("Mãos juntadas"); renderAll();
+  } catch { }
+}
 
 // manda as mãos da caixa para a biblioteca: cada print vira uma dúvida (legenda = pergunta). Sem IA.
 async function sendInboxToLibrary(hs) {

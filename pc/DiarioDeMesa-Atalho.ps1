@@ -8,7 +8,7 @@ $SITE   = "https://diario-de-mesa-gamma.vercel.app"
 $SB_URL = "https://setfwqbgnrdqjhdyyrwm.supabase.co"
 $SB_KEY = "sb_publishable_pgZwjSF38yBhEQo1B0AmRQ_JSn2O374"
 
-$JUNTAR_MINUTOS = 3          # prints com menos de X minutos de diferença entram na mesma mão
+$JUNTAR_MINUTOS = 1          # prints com menos de X minutos de diferença entram na mesma mão
 $PEDIR_LEGENDA  = $false     # $true: abre uma caixinha para a legenda depois de cada print (rouba o foco da mesa!)
 
 # Atalhos, perto do Win+Shift+S. Para cada ação, usa a primeira opção que estiver livre no PC.

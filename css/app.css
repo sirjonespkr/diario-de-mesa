@@ -324,6 +324,17 @@ dialog.show[open]{display:flex}
 .unsaved{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--gold);border-radius:10px;padding:10px 12px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
 .unsaved span{flex:1;min-width:180px;font-weight:600;color:var(--gold)}
 
+/* caixa de entrada: tira de prints com separar/juntar */
+.inbox-card .ib-strip{display:flex;align-items:stretch;gap:4px;overflow-x:auto;padding:8px;background:var(--surface-2)}
+.inbox-card .ib-img{position:relative;flex:0 0 100px;max-width:100%;border-radius:6px;overflow:hidden;background:var(--bg)}
+.inbox-card .ib-img img{width:100%;aspect-ratio:16/10;object-fit:cover;display:block}
+.inbox-card .ib-img span{position:absolute;left:4px;bottom:4px;background:rgba(0,0,0,.75);color:#fff;font-family:var(--f-mono);font-size:.66rem;border-radius:4px;padding:0 5px}
+.inbox-card .ib-img.lobby{outline:1px dashed var(--muted);outline-offset:-1px}
+.inbox-card .ib-img .noimg{position:static;display:grid;place-items:center;aspect-ratio:16/10;background:none;color:var(--muted);font-size:1.4rem}
+.inbox-card .ib-cut{flex:0 0 22px;border:1px dashed var(--line-2);background:transparent;color:var(--muted);border-radius:6px;cursor:pointer;font-size:.8rem;padding:0}
+.inbox-card .ib-cut:hover{color:var(--gold);border-color:var(--gold);background:var(--gold-soft)}
+#inbox-grid{grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+
 /* compartilhar */
 .selbar{position:fixed;left:50%;transform:translateX(-50%);bottom:max(16px,env(safe-area-inset-bottom));z-index:40;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--accent);border-radius:14px;padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.5);width:min(720px,calc(100vw - 24px))}
 .selbar #sel-count{font-weight:700;color:var(--accent);white-space:nowrap}
