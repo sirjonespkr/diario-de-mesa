@@ -137,9 +137,11 @@ function Get-Access {
 function Capture-Snip {
   $before = [HotkeyWindow]::GetClipboardSequenceNumber()
   Start-Process "ms-screenclip:"
-  $limit = (Get-Date).AddSeconds(60)
+  # espera o recorte por até 25 s; se você apertar um atalho de novo, para de esperar e começa o novo recorte
+  $limit = (Get-Date).AddSeconds(25)
   while ((Get-Date) -lt $limit) {
     [System.Windows.Forms.Application]::DoEvents()
+    if ($script:cancelWait) { return $null }
     Start-Sleep -Milliseconds 150
     if ([HotkeyWindow]::GetClipboardSequenceNumber() -ne $before) {
       try { if ([System.Windows.Forms.Clipboard]::ContainsImage()) { return [System.Windows.Forms.Clipboard]::GetImage() } } catch {}
@@ -231,22 +233,31 @@ for ($i = 0; $i -lt $ATALHOS.Count; $i++) {
   }
   if (-not $ok) { $failed += $NOMES[$a.Nome] }
 }
-$script:busy = $false
+$script:busy = $false; $script:pending = $null; $script:cancelWait = $false
+function Run-Action([string]$nome) {
+  switch ($nome) {
+    "print" { Send-Print "mesa" $false }
+    "nova"  { Send-Print "mesa" $true }
+    "lobby" { Send-Print "lobby" $false }
+  }
+}
 $win.add_Hotkey({
   param($s, $e)
-  if ($script:busy) { return }
+  $nome = $ATALHOS[$e.Id - 1].Nome
+  # já esperando um recorte (ex.: você cancelou com Esc)? guarda o novo pedido e para de esperar o antigo
+  if ($script:busy) { $script:pending = $nome; $script:cancelWait = $true; return }
   $script:busy = $true
   try {
-    $nome = $ATALHOS[$e.Id - 1].Nome
-    switch ($nome) {
-      "print" { Send-Print "mesa" $false }
-      "nova"  { Send-Print "mesa" $true }
-      "lobby" { Send-Print "lobby" $false }
-    }
-  } catch {
-    Log "erro: $($_.Exception.Message)"
-    Notify "Não deu para enviar o print" $_.Exception.Message $true
-  } finally { $script:busy = $false }
+    do {
+      $script:pending = $null; $script:cancelWait = $false
+      try { Run-Action $nome }
+      catch {
+        Log "erro: $($_.Exception.Message)"
+        Notify "Não deu para enviar o print" $_.Exception.Message $true
+      }
+      $nome = $script:pending
+    } while ($nome)
+  } finally { $script:busy = $false; $script:cancelWait = $false; $script:pending = $null }
 })
 
 # ---------------- menu do ícone ----------------
