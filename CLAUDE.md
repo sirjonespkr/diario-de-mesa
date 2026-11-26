@@ -23,6 +23,13 @@ Site pessoal (um único usuário, jogador profissional de poker, MTT) para organ
 - No navegador, dados pessoais são carregados com `eq("user_id", eu)`; o que veio do fórum fica em `FX` (posts, decisions, hands, images, views). Use `getDec`, `getHand`, `imagesOf`, `decisionsOf` (olham os dois). A página da dúvida (`renderDoubt`) serve para as minhas e para posts dos outros (`mine` esconde resolver/plantão/HRC/compartilhar/editar/fixar).
 - Tela `#forum` com busca e filtros (todos, não vistos, abertos, resolvidos, autor, spot); selo de não vistos no menu; atualiza a cada 60s.
 
+## Fórum do swap (etapa 2, partes 2 e 3, migração 010)
+- `reactions` (👍 concordo, 👎 discordo, 🤔 duvida, 🔥 otima, 📌 rever; na dúvida com `comment_id` null ou num comentário). Só em posts. Filtro "📌 Rever depois" no fórum.
+- `notifications`: criados por gatilhos no banco (`notify_comment`: comentário no meu post, resposta numa discussão em que participei, `@nick` no texto; `notify_reaction`). Post novo não vira aviso (o selo do fórum já mostra). A tela Avisos junta `notifications` + `share_comments`; abrir a dúvida marca os dois como lidos.
+- Menções: chips "Marcar: @nick" no comentário; `bodyHtml` realça os nicks.
+- Votação às cegas: `polls` (2–6 opções, só o autor cria/revela/apaga) e `poll_votes` (1 voto). Os votos dos outros só aparecem (RLS + `poll_open`) para quem já votou, quando todos menos o autor votaram, ou quando o autor revela. `poll_voters` diz quem votou sem dizer em quê.
+- Spoiler: nos posts dos outros, conclusão e discussão ficam escondidas até clicar, votar ou comentar (`post_views.revealed`). No link público (`ver.html`) o mesmo, guardado em localStorage `dm-rev-<token>`; o PDF mostra tudo.
+
 ## Modelo de dados
 - `hands`: dados da mão (sala, torneio, cartas, posição, stack inicial, board final, `situation` = resumo/história).
 - `hand_images`: prints da mão (`kind` = `mesa` ou `lobby`; prints com legenda começando por "lobby" viram `lobby` e a IA da mão ignora), com `caption` (legenda curta do jogador, estilo "cbet 1/3 C. Lead?").
@@ -55,6 +62,5 @@ Site pessoal (um único usuário, jogador profissional de poker, MTT) para organ
 - Ao adicionar uma coluna: atualizar `schema.sql`, criar `supabase/migrations/NNN_nome.sql` e avisar o dono para rodar.
 
 ## Próximos passos combinados
-- Etapa 2 (fórum do swap): "Postar no swap", feed com filtros, discussão com @, reações (👍 concordo, 👎 discordo, 🤔 não entendi, 🔥 ótima, 📌 rever depois), "visto por" com nomes, avisos, votação às cegas, spoiler que esconde conclusão E discussão até clicar (vale também nos links públicos), editar/apagar e moderação do admin, busca.
 - Etapa 3: pauta do plantão (marcadas, ordenadas por votos, sai sozinha depois de respondida), treino com revisão espaçada usando as mãos resolvidas do grupo, agenda do grupo como camada opcional.
 - Não fazer: controle financeiro do swap (o time já tem), avisos no Discord, app de celular, painel de spots, limite de IA por pessoa.

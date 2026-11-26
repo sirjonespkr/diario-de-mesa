@@ -43,7 +43,7 @@ const AUTH_LINK = (/[#&]type=(invite|recovery|signup|magiclink)/.exec(location.h
 const configured = !SUPABASE_URL.startsWith("COLE_") && !!window.supabase;
 const sb = configured ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
-const S = { user: null, me: null, profiles: [], members: [], isAdmin: false, hands: [], images: [], decisions: [], comments: [], shares: [], friend: [], events: [], tasks: [], pregrind: [], leaks: [], tags: [], urls: new Map() };
+const S = { user: null, me: null, profiles: [], members: [], isAdmin: false, hands: [], images: [], decisions: [], comments: [], shares: [], friend: [], notifs: [], events: [], tasks: [], pregrind: [], leaks: [], tags: [], urls: new Map() };
 
 async function q(promise, what) {
   const { data, error } = await promise;
@@ -52,7 +52,7 @@ async function q(promise, what) {
 }
 
 async function loadAll() {
-  const [hands, images, decisions, events, tasks, pregrind, leaks, tags, comments, shares, friend, profiles, members] = await Promise.all([
+  const [hands, images, decisions, events, tasks, pregrind, leaks, tags, comments, shares, friend, profiles, members, notifs] = await Promise.all([
     q(sb.from("hands").select("*").eq("user_id", S.user.id).order("created_at", { ascending: false }), "carregar as mãos"),
     q(sb.from("hand_images").select("*").eq("user_id", S.user.id).order("sort"), "carregar os prints"),
     q(sb.from("decisions").select("*").eq("user_id", S.user.id).order("sort"), "carregar as dúvidas (rodou o SQL 003?)"),
@@ -65,12 +65,14 @@ async function loadAll() {
     sb.from("shares").select("*").order("created_at", { ascending: false }).then(r => r.error ? [] : r.data),
     sb.from("share_comments").select("*").order("created_at").then(r => r.error ? [] : r.data),
     sb.from("profiles").select("*").then(r => r.error ? [] : r.data),
-    sb.from("group_members").select("*").then(r => r.error ? [] : r.data)
+    sb.from("group_members").select("*").then(r => r.error ? [] : r.data),
+    loadNotifs()
   ]);
-  Object.assign(S, { hands, images, decisions, events, tasks, pregrind, leaks, tags, comments, shares, friend, profiles, members });
+  Object.assign(S, { hands, images, decisions, events, tasks, pregrind, leaks, tags, comments, shares, friend, profiles, members, notifs });
   S.me = profiles.find(p => p.user_id === S.user.id) || null;
   S.isAdmin = members.some(m => m.user_id === S.user.id && m.role === "admin");
   friendSeen = new Set(friend.map(c => c.id));
+  notifSeen = new Set(notifs.map(n => n.id));
   if (!tags.length) {
     const rows = DEFAULT_TAGS.map((name, i) => ({ user_id: S.user.id, name, sort: i }));
     const { error } = await sb.from("tags").upsert(rows, { onConflict: "user_id,name", ignoreDuplicates: true });
@@ -89,7 +91,7 @@ async function signImages(paths) {
   }
 }
 // dados do fórum (o que foi postado no swap, inclusive dos outros)
-const FX = { posts: [], decisions: [], hands: [], images: [], views: [], loaded: false };
+const FX = { posts: [], decisions: [], hands: [], images: [], views: [], reactions: [], polls: [], votes: [], voters: [], loaded: false };
 const uniq = arr => { const seen = new Set(); return arr.filter(x => !seen.has(x.id) && seen.add(x.id)); };
 const allImages = () => FX.images.length ? uniq(S.images.concat(FX.images)) : S.images;
 const getDec = id => S.decisions.find(x => x.id === id) || FX.decisions.find(x => x.id === id) || null;
@@ -188,7 +190,7 @@ let currentDec = null;
 let view = "hoje";
 function route() {
   const hash = location.hash.slice(1);
-  if (hash.startsWith("duvida-")) { view = "duvida"; currentDec = hash.slice(7); showIdx = null; setTimeout(() => { markFriendRead(currentDec); markPostSeen(currentDec); }, 1200); }
+  if (hash.startsWith("duvida-")) { view = "duvida"; currentDec = hash.slice(7); showIdx = null; setTimeout(() => { markFriendRead(currentDec); markPostSeen(currentDec); markNotifsRead(currentDec); }, 1200); }
   else view = VIEWS.includes(hash) ? hash : "hoje";
   VIEWS.forEach(v => { $("#v-" + v).hidden = v !== view; });
   const navView = view === "duvida" ? (backTo === "plantao" ? "plantao" : backTo === "forum" ? "forum" : "maos") : view;
@@ -221,7 +223,7 @@ function counts() {
 }
 function renderBadges() {
   const c = counts();
-  [["#b-forum", forumUnseen()], ["#b-avisos", S.friend.filter(c => !c.read).length], ["#b-entrada", S.hands.filter(isInbox).length], ["#b-maos", c.rever], ["#b-plantao", c.plantao], ["#b-pregrind", c.pregrind]].forEach(([sel, n]) => {
+  [["#b-forum", forumUnseen()], ["#b-avisos", avisosUnread()], ["#b-entrada", S.hands.filter(isInbox).length], ["#b-maos", c.rever], ["#b-plantao", c.plantao], ["#b-pregrind", c.pregrind]].forEach(([sel, n]) => {
     const b = $(sel); b.hidden = !n; b.textContent = n;
   });
 }
@@ -488,6 +490,160 @@ function seenLine(d) {
   return `<div class="seen">👁 ${seen.length ? `Visto por ${seen.map(u => `<b>${esc(u === S.user.id ? "você" : nickOf(u))}</b>`).join(", ")}` : "Ninguém viu ainda"}${notSeen.length ? `<span class="muted"> · ainda não viram: ${notSeen.map(u => esc(u === S.user.id ? "você" : nickOf(u))).join(", ")}</span>` : ""}</div>`;
 }
 
+/* ---- reações, menções, spoiler e votação às cegas (partes 2 e 3 do fórum) ---- */
+const REACTS = [["concordo", "👍", "Concordo"], ["discordo", "👎", "Discordo"], ["duvida", "🤔", "Não entendi"], ["otima", "🔥", "Ótima"], ["rever", "📌", "Rever depois"]];
+const REACT_EMOJI = Object.fromEntries(REACTS.map(([k, e]) => [k, e]));
+const RX = { open: null }; // comentário com o seletor de reações aberto
+const reactsOf = (decId, cmId = null) => FX.reactions.filter(r => r.decision_id === decId && (r.comment_id || null) === cmId);
+const whoNames = rs => rs.map(r => r.user_id === S.user.id ? "você" : nickOf(r.user_id)).join(", ");
+function reactBar(decId, cmId = null) {
+  const rs = reactsOf(decId, cmId);
+  const items = REACTS.map(([k, e, l]) => { const who = rs.filter(r => r.kind === k); return { k, e, l, who, me: who.some(r => r.user_id === S.user.id) }; });
+  const full = !cmId || RX.open === cmId; // na dúvida mostra todas; nos comentários só as usadas + botão para abrir
+  const shown = full ? items : items.filter(i => i.who.length);
+  return `<div class="reacts ${cmId ? "on-cmt" : ""}">${shown.map(i => `<button type="button" class="rx ${i.me ? "on" : ""}" data-rx="${i.k}" data-rx-cm="${cmId || ""}" aria-pressed="${i.me}" title="${esc(i.l + (i.who.length ? ": " + whoNames(i.who) : ""))}">${i.e}${!cmId ? `<em>${i.l}</em>` : ""}${i.who.length ? `<b>${i.who.length}</b>` : ""}</button>`).join("")}${cmId && !full ? `<button type="button" class="rx add" data-rx-open="${cmId}" title="Reagir" aria-label="Reagir">☺<small>+</small></button>` : ""}</div>`;
+}
+async function toggleReact(d, kind, cmId) {
+  const old = FX.reactions.find(r => r.decision_id === d.id && (r.comment_id || null) === (cmId || null) && r.kind === kind && r.user_id === S.user.id);
+  try {
+    if (old) {
+      await q(sb.from("reactions").delete().eq("id", old.id), "tirar a reação");
+      FX.reactions = FX.reactions.filter(r => r.id !== old.id);
+    } else {
+      const r = await q(sb.from("reactions").insert({ decision_id: d.id, comment_id: cmId || null, kind }).select().single(), "reagir (rodou o SQL 010?)");
+      FX.reactions.push(r);
+    }
+  } catch { }
+  renderDoubt();
+}
+
+// @menções: realça os nicks conhecidos no texto (o aviso é criado no banco)
+const reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function bodyHtml(text) {
+  const h = esc(text);
+  if (!h.includes("@")) return h;
+  const nicks = S.profiles.map(p => p.nick).filter(Boolean).sort((a, b) => b.length - a.length);
+  if (!nicks.length) return h;
+  return h.replace(new RegExp("@(" + nicks.map(n => reEsc(esc(n))).join("|") + ")", "gi"), m => `<span class="mention">${m}</span>`);
+}
+function mentionChips(post, d) {
+  const us = S.members.filter(m => m.group_id === post.group_id && m.user_id !== S.user.id).map(m => m.user_id).filter(u => S.profiles.some(p => p.user_id === u && p.nick));
+  if (!us.length) return "";
+  return `<div class="mentions"><span class="muted">Marcar:</span>${us.map(u => `<button type="button" data-mention="${esc(nickOf(u))}">@${esc(nickOf(u))}</button>`).join("")}</div>`;
+}
+function insertMention(nick) {
+  const ta = $("#cm-text"); if (!ta) return;
+  const a = ta.selectionStart ?? ta.value.length, b = ta.selectionEnd ?? a;
+  const before = ta.value.slice(0, a), sep = before && !/\s$/.test(before) ? " " : "";
+  const ins = sep + "@" + nick + " ";
+  ta.value = before + ins + ta.value.slice(b); CM.text = ta.value;
+  ta.focus(); ta.setSelectionRange(a + ins.length, a + ins.length);
+}
+
+// spoiler: quem não é o autor só vê conclusão e discussão depois de clicar, votar ou comentar
+const REVEAL = new Set();
+const revealedFor = d => d.user_id === S.user.id || !postOf(d.id) || REVEAL.has(d.id)
+  || FX.views.some(v => v.decision_id === d.id && v.user_id === S.user.id && v.revealed)
+  || FX.votes.some(v => v.decision_id === d.id && v.user_id === S.user.id)
+  || S.comments.some(c => c.decision_id === d.id && c.user_id === S.user.id);
+async function reveal(d) {
+  REVEAL.add(d.id); renderDoubt();
+  const row = { decision_id: d.id, user_id: S.user.id, viewed_at: new Date().toISOString(), revealed: true };
+  const { error } = await sb.from("post_views").upsert(row, { onConflict: "decision_id,user_id" });
+  if (!error) FX.views = FX.views.filter(v => !(v.decision_id === d.id && v.user_id === S.user.id)).concat(row);
+}
+
+// votação às cegas
+const PE = { dec: null, opts: ["", "", ""] }; // rascunho da votação sendo criada
+const pollOf = decId => FX.polls.find(p => p.decision_id === decId) || null;
+function pollCard(d, mine, post) {
+  const poll = pollOf(d.id);
+  if (!poll) {
+    if (!mine) return "";
+    if (PE.dec !== d.id) return `<div class="card poll"><h2>🗳 Votação às cegas</h2>
+      <p class="muted" style="margin:0 0 10px;font-size:.84rem">Cada um vota o que faria sem ver os votos dos outros. O resultado abre para quem já votou, quando todos votarem ou quando você revelar.</p>
+      <button class="btn sm" type="button" data-poll="new">Criar votação</button></div>`;
+    const ph = ["Fold", "Call", "Raise / shove", "Opção 4", "Opção 5", "Opção 6"];
+    return `<div class="card poll"><h2>🗳 Nova votação</h2>
+      <div class="stack" style="gap:6px">${PE.opts.map((o, k) => `<div class="poll-opt-in"><input type="text" maxlength="60" data-poll-opt="${k}" value="${esc(o)}" placeholder="${ph[k]}" aria-label="Opção ${k + 1}">${PE.opts.length > 2 ? `<button type="button" class="x" data-poll="rm" data-k="${k}" aria-label="Tirar opção">✕</button>` : ""}</div>`).join("")}</div>
+      <div class="row" style="margin-top:10px;gap:6px;flex-wrap:wrap">
+        ${PE.opts.length < 6 ? `<button class="btn ghost sm" type="button" data-poll="add">+ Opção</button>` : ""}
+        <span class="spacer"></span>
+        <button class="btn sm" type="button" data-poll="cancel">Cancelar</button>
+        <button class="btn primary sm" type="button" data-poll="create">Criar</button>
+      </div></div>`;
+  }
+  const others = S.members.filter(m => m.group_id === post.group_id && m.user_id !== d.user_id).map(m => m.user_id);
+  const voters = FX.voters.filter(v => v.decision_id === d.id).map(v => v.user_id);
+  const votes = FX.votes.filter(v => v.decision_id === d.id);
+  const myVote = votes.find(v => v.user_id === S.user.id);
+  const allVoted = others.length > 0 && others.every(u => voters.includes(u));
+  const resOpen = poll.revealed || !!myVote || allVoted;
+  const missing = others.filter(u => !voters.includes(u));
+  const total = votes.length;
+  const body = resOpen
+    ? `<div class="poll-res">${poll.options.map((o, k) => { const vs = votes.filter(v => v.option === k); const pct = total ? Math.round(vs.length / total * 100) : 0;
+        return `<div class="pr ${myVote?.option === k ? "mine" : ""}"><div class="pr-h"><span>${esc(o)}${myVote?.option === k ? " · seu voto" : ""}</span><b class="num">${vs.length} · ${pct}%</b></div>
+          <div class="meter"><i style="width:${pct}%"></i></div>
+          ${vs.length ? `<div class="pr-who">${vs.map(v => esc(v.user_id === S.user.id ? "você" : nickOf(v.user_id))).join(", ")}</div>` : ""}</div>`; }).join("")}</div>`
+    : `<div class="poll-vote">${poll.options.map((o, k) => `<button class="btn" type="button" data-vote="${k}">${esc(o)}</button>`).join("")}</div>
+       <p class="muted" style="margin:8px 0 0;font-size:.8rem">Você vê os votos dos outros depois de votar.</p>`;
+  return `<div class="card poll"><div class="card-h"><h2>🗳 Votação às cegas</h2>${poll.revealed ? `<span class="muted" style="font-size:.78rem">revelada</span>` : ""}</div>
+    ${body}
+    <div class="seen" style="margin-top:10px">${voters.length ? `Votaram: ${voters.map(u => `<b>${esc(u === S.user.id ? "você" : nickOf(u))}</b>`).join(", ")}` : "Ninguém votou ainda"}${missing.length ? `<span class="muted"> · faltam: ${missing.map(u => esc(u === S.user.id ? "você" : nickOf(u))).join(", ")}</span>` : ""}</div>
+    ${mine ? `<div class="row" style="margin-top:10px;gap:6px;flex-wrap:wrap">
+      ${!poll.revealed && !allVoted ? `<button class="btn sm" type="button" data-poll="reveal" title="Mostra o resultado para todos, mesmo quem ainda não votou">Revelar resultado</button>` : ""}
+      <button class="btn ghost sm" type="button" data-poll="del">Apagar votação</button></div>` : ""}
+  </div>`;
+}
+async function reloadPoll(decId) {
+  const [p, v, w] = await Promise.all([
+    sb.from("polls").select("*").eq("decision_id", decId),
+    sb.from("poll_votes").select("*").eq("decision_id", decId),
+    sb.rpc("poll_voters", { ids: [decId] })
+  ]);
+  FX.polls = FX.polls.filter(x => x.decision_id !== decId).concat(p.data || []);
+  FX.votes = FX.votes.filter(x => x.decision_id !== decId).concat(v.data || []);
+  FX.voters = FX.voters.filter(x => x.decision_id !== decId).concat(w.data || []);
+}
+async function pollAction(d, btn) {
+  const a = btn.dataset.poll;
+  try {
+    if (a === "new") { PE.dec = d.id; PE.opts = ["", "", ""]; renderDoubt(); $("[data-poll-opt='0']")?.focus(); return; }
+    if (a === "cancel") { PE.dec = null; renderDoubt(); return; }
+    if (a === "add") { if (PE.opts.length < 6) PE.opts.push(""); renderDoubt(); $(`[data-poll-opt='${PE.opts.length - 1}']`)?.focus(); return; }
+    if (a === "rm") { PE.opts.splice(+btn.dataset.k, 1); renderDoubt(); return; }
+    if (a === "create") {
+      const options = PE.opts.map(o => o.trim()).filter(Boolean);
+      if (options.length < 2) { toast("Escreva pelo menos duas opções.", true); return; }
+      btn.disabled = true;
+      await q(sb.from("polls").insert({ decision_id: d.id, options }), "criar a votação (rodou o SQL 010?)");
+      PE.dec = null; await reloadPoll(d.id); toast("🗳 Votação criada"); renderDoubt(); return;
+    }
+    if (a === "reveal") {
+      if (!btn.hasAttribute("data-armed")) { btn.setAttribute("data-armed", ""); btn.textContent = "Confirmar: mostrar para todos"; return; }
+      await q(sb.from("polls").update({ revealed: true }).eq("decision_id", d.id), "revelar o resultado");
+      await reloadPoll(d.id); renderDoubt(); return;
+    }
+    if (a === "del") {
+      if (!btn.hasAttribute("data-armed")) { btn.setAttribute("data-armed", ""); btn.textContent = "Confirmar: apagar votação e votos"; return; }
+      await q(sb.from("polls").delete().eq("decision_id", d.id), "apagar a votação");
+      FX.polls = FX.polls.filter(x => x.decision_id !== d.id); FX.votes = FX.votes.filter(x => x.decision_id !== d.id); FX.voters = FX.voters.filter(x => x.decision_id !== d.id);
+      renderDoubt(); return;
+    }
+  } catch { btn.disabled = false; }
+}
+async function castVote(d, option, btn) {
+  btn.disabled = true;
+  try {
+    await q(sb.from("poll_votes").insert({ decision_id: d.id, option }), "votar");
+    REVEAL.add(d.id);
+    await reloadPoll(d.id);
+    renderDoubt();
+    reveal(d);
+  } catch { btn.disabled = false; }
+}
+
 function renderDoubt() {
   const el = $("#v-duvida");
   const d = getDec(currentDec);
@@ -511,6 +667,8 @@ function renderDoubt() {
   const fact = (label, val, wide) => val ? `<div class="${wide ? "wide" : ""}"><dt>${label}</dt><dd>${val}</dd></div>` : "";
   const showAuthors = !!post || cms.some(c => c.user_id !== S.user.id);
   const canDel = c => c.user_id === S.user.id || (S.isAdmin && post);
+  const open = revealedFor(d); // spoiler: nos posts dos outros, conclusão e discussão ficam escondidas até clicar
+  const hasConcl = !!(d.conclusion || pins.length);
 
   setHTML(el, `
     <div class="dv-bar">
@@ -532,6 +690,7 @@ function renderDoubt() {
       <h1>${esc(d.question || "Sem pergunta escrita")}</h1>
       ${d.situation ? `<p class="muted" style="margin:0">${esc(d.situation)}</p>` : ""}
       ${post ? seenLine(d) : ""}
+      ${post ? reactBar(d.id) : ""}
       <div class="dv-actions">
         ${mine ? (resolved
           ? `<button class="btn" type="button" data-act="toggle" title="Reabre esta dúvida e abre a próxima resolvida da lista">↺ Reabrir${nav.nextSame("revisada") ? " e ir para a próxima" : ""}</button>`
@@ -558,19 +717,25 @@ function renderDoubt() {
 
         <div class="card">
           <div class="card-h"><h2>Discussão</h2><span class="muted" style="font-size:.8rem">${cms.length ? cms.length + (cms.length === 1 ? " comentário" : " comentários") : ""}</span></div>
-          <div class="thread">
+          ${!open ? `<div class="spoiler">
+            <p>🙈 ${hasConcl ? "A conclusão e a discussão estão escondidas" : "A discussão está escondida"} para você pensar sem influência.
+              ${FX.polls.some(p => p.decision_id === d.id) ? "Vote ao lado, comente o que você faria ou clique para ver." : "Comente o que você faria ou clique para ver."}</p>
+            <button class="btn" type="button" data-act="reveal">Mostrar ${hasConcl ? "conclusão e discussão" : "discussão"}${cms.length ? ` (${cms.length})` : ""}</button>
+          </div>` : `<div class="thread">
             ${cms.length ? cms.map(c => CE.id === c.id ? cmtEditor(c) : `
               <div class="cmt ${c.pinned ? "pinned" : ""}" data-cm="${c.id}">
                 <div class="cmt-h">${showAuthors ? `<span class="author">${avatarHtml(c.user_id, 20)} <b>${esc(c.user_id === S.user.id ? "Você" : nickOf(c.user_id))}</b></span>` : ""}${c.pinned ? `<span class="pin-lbl">📌 Conclusão</span>` : ""}<span>${fmtWhen(c.created_at)}</span><span class="spacer"></span>
                   ${mine ? `<button type="button" data-cm-act="pin">${c.pinned ? "Desafixar" : "Fixar como conclusão"}</button>` : ""}
                   ${c.user_id === S.user.id ? `<button type="button" data-cm-act="edit">Editar</button>` : ""}
                   ${canDel(c) ? `<button type="button" data-cm-act="del">Excluir</button>` : ""}</div>
-                ${c.body ? `<div class="cmt-body">${esc(c.body)}</div>` : ""}
+                ${c.body ? `<div class="cmt-body">${bodyHtml(c.body)}</div>` : ""}
                 ${c.images?.length ? `<div class="cmt-imgs">${c.images.map(p => `<img src="${esc(S.urls.get(p) || "")}" alt="Print do comentário" data-zoom-cm>`).join("")}</div>` : ""}
+                ${post ? reactBar(d.id, c.id) : ""}
               </div>`).join("") : `<p class="muted" style="margin:0;font-size:.88rem">${mine ? "Use este espaço para ir resolvendo a dúvida: anotações, o que o solver mostrou, a resposta do coach, prints de range. Quando chegar numa resposta, fixe como conclusão e marque como resolvida." : "Ninguém comentou ainda. O que você faria nessa mão?"}</p>`}
-          </div>
+          </div>`}
           <div class="composer" id="cm-box">
-            <textarea id="cm-text" placeholder="Escreva um comentário. Cole prints com Ctrl+V ou arraste para cá.">${esc(CM.text)}</textarea>
+            <textarea id="cm-text" placeholder="${open ? "Escreva um comentário. Use @nick para marcar alguém. Cole prints com Ctrl+V ou arraste para cá." : "O que você faria? Ao enviar, a discussão aparece para você."}">${esc(CM.text)}</textarea>
+            ${post ? mentionChips(post, d) : ""}
             ${CM.files.length ? `<div class="pend">${CM.files.map((f, k) => `<div><img src="${f.url}" alt=""><button type="button" data-cm-rm="${k}" aria-label="Remover print">✕</button></div>`).join("")}</div>` : ""}
             <div class="row">
               <label class="btn ghost sm" style="cursor:pointer">📎 Anexar print<input type="file" id="cm-file" accept="image/*" multiple hidden></label>
@@ -582,9 +747,11 @@ function renderDoubt() {
       </div>
 
       <div class="dv-side">
-        ${(d.conclusion || pins.length) ? `<div class="resolved-box"><h3>Conclusão</h3>
+        ${post ? pollCard(d, mine, post) : ""}
+        ${hasConcl && !open ? `<div class="resolved-box spoil"><h3>Conclusão</h3><button class="btn sm" type="button" data-act="reveal">🙈 Mostrar conclusão</button></div>` : ""}
+        ${hasConcl && open ? `<div class="resolved-box"><h3>Conclusão</h3>
           ${d.conclusion ? `<p class="dv-text">${esc(d.conclusion)}</p>` : ""}
-          ${pins.map(c => `${c.body ? `<p class="dv-text">${esc(c.body)}</p>` : ""}${c.images?.length ? `<div class="cmt-imgs">${c.images.map(p => `<img src="${esc(S.urls.get(p) || "")}" alt="" data-zoom-cm>`).join("")}</div>` : ""}`).join("")}
+          ${pins.map(c => `${c.body ? `<p class="dv-text">${bodyHtml(c.body)}</p>` : ""}${c.images?.length ? `<div class="cmt-imgs">${c.images.map(p => `<img src="${esc(S.urls.get(p) || "")}" alt="" data-zoom-cm>`).join("")}</div>` : ""}`).join("")}
         </div>` : ""}
         ${mine && d.plantao && d.plantao_answer ? `<div class="card"><h2>Resposta do plantão</h2><p class="dv-text">${esc(d.plantao_answer)}</p></div>` : ""}
         ${mine ? hrcPanel(h) : ""}
@@ -649,7 +816,11 @@ async function setDecision(d, patch, what) {
   return r;
 }
 
-$("#v-duvida").addEventListener("input", e => { if (e.target.id === "cm-text") CM.text = e.target.value; if (e.target.id === "ce-text") CE.text = e.target.value; });
+$("#v-duvida").addEventListener("input", e => {
+  if (e.target.id === "cm-text") CM.text = e.target.value;
+  if (e.target.id === "ce-text") CE.text = e.target.value;
+  if (e.target.dataset.pollOpt != null) PE.opts[+e.target.dataset.pollOpt] = e.target.value;
+});
 $("#v-duvida").addEventListener("change", e => {
   if (e.target.id === "cm-file") { const f = [...e.target.files]; e.target.value = ""; addCommentFiles(f); }
   if (e.target.id === "ce-file") { const f = [...e.target.files]; e.target.value = ""; addEditFiles(f); }
@@ -676,6 +847,11 @@ $("#v-duvida").addEventListener("click", async e => {
 
   const hb = t.closest("[data-hrc]");
   if (hb) { hrcAction(hb.dataset.hrc, d); return; }
+  const rx = t.closest("[data-rx]"); if (rx) { if (postOf(d.id)) { if (rx.dataset.rxCm) RX.open = null; toggleReact(d, rx.dataset.rx, rx.dataset.rxCm || null); } return; }
+  const rxo = t.closest("[data-rx-open]"); if (rxo) { RX.open = rxo.dataset.rxOpen; renderDoubt(); return; }
+  const mn = t.closest("[data-mention]"); if (mn) { insertMention(mn.dataset.mention); return; }
+  const pb = t.closest("[data-poll]"); if (pb) { if (mine) pollAction(d, pb); return; }
+  const vb = t.closest("[data-vote]"); if (vb) { castVote(d, +vb.dataset.vote, vb); return; }
   const act = t.closest("[data-act]")?.dataset.act;
   try {
     if ((act === "post" || act === "unpost") && (mine || S.isAdmin)) { await togglePost(d, act, t.closest("[data-act]")); return; }
@@ -691,6 +867,7 @@ $("#v-duvida").addEventListener("click", async e => {
     }
     if (act === "plantao") { await setDecision(d, { plantao: !d.plantao }, "atualizar o plantão"); renderAll(); return; }
     if (act === "show") { openShow(d, showIdx); return; }
+    if (act === "reveal") { reveal(d); return; }
     if (act === "share") { shareDecisions([d.id], d.question || "Dúvida de poker"); return; }
     if (act === "edit") { openHand(d.hand_id, [], { focusDec: d.id }); return; }
   } catch { return; }
@@ -754,7 +931,7 @@ $("#v-duvida").addEventListener("click", async e => {
         if (!ca.hasAttribute("data-armed")) { ca.setAttribute("data-armed", ""); ca.textContent = "Confirmar"; return; }
         if (c.images?.length) await sb.storage.from("hands").remove(c.images);
         await q(sb.from("comments").delete().eq("id", c.id), "excluir o comentário");
-        S.comments = S.comments.filter(x => x.id !== c.id); renderAll();
+        S.comments = S.comments.filter(x => x.id !== c.id); FX.reactions = FX.reactions.filter(r => r.comment_id !== c.id); renderAll();
       }
     } catch { }
   }
@@ -1781,28 +1958,74 @@ async function markFriendRead(decId) {
   S.friend = S.friend.map(c => ids.includes(c.id) ? { ...c, read: true } : c);
   renderBadges(); renderAvisos(); renderLibrary();
 }
+// avisos: comentários, menções e reações no swap (tabela notifications) + comentários dos amigos nos links (share_comments)
+let notifSeen = new Set();
+async function loadNotifs() {
+  const { data, error } = await sb.from("notifications").select("*").order("created_at", { ascending: false }).limit(150);
+  return error ? [] : data.filter(n => n.kind !== "post");
+}
+const avisosUnread = () => S.notifs.filter(n => !n.read).length + S.friend.filter(c => !c.read && !c.is_owner).length;
+function notifText(n) {
+  const on = n.comment_id ? "ao seu comentário" : "à sua dúvida";
+  return { comment: "comentou na sua dúvida", reply: "também comentou numa discussão em que você participou", mention: "marcou você num comentário", reaction: `reagiu ${REACT_EMOJI[n.detail] || ""} ${on}` }[n.kind] || n.kind;
+}
+async function markNotifsRead(decId) {
+  if (view !== "duvida" || currentDec !== decId) return;
+  const ids = S.notifs.filter(n => n.decision_id === decId && !n.read).map(n => n.id);
+  if (!ids.length) return;
+  const { error } = await sb.from("notifications").update({ read: true }).in("id", ids);
+  if (error) return;
+  S.notifs = S.notifs.map(n => ids.includes(n.id) ? { ...n, read: true } : n);
+  renderBadges();
+}
 function renderAvisos() {
   const el = $("#av-list"); if (!el) return;
-  const list = [...S.friend].filter(c => !c.is_owner).sort((a, b) => (a.read - b.read) || b.created_at.localeCompare(a.created_at)).slice(0, 80);
-  $("#av-read-all").hidden = !S.friend.some(c => !c.read);
-  setHTML(el, list.length ? list.map(c => {
-    const d = S.decisions.find(x => x.id === c.decision_id);
+  const items = S.notifs.map(n => ({ n, read: n.read, at: n.created_at }))
+    .concat(S.friend.filter(c => !c.is_owner).map(c => ({ c, read: c.read, at: c.created_at })))
+    .sort((a, b) => (a.read - b.read) || b.at.localeCompare(a.at)).slice(0, 100);
+  $("#av-read-all").hidden = !avisosUnread();
+  setHTML(el, items.length ? items.map(({ n, c }) => {
+    if (n) {
+      const d = getDec(n.decision_id);
+      const cm = n.comment_id ? S.comments.find(x => x.id === n.comment_id) : null;
+      const quote = n.kind === "reaction" ? (cm?.body || "") : (cm?.body || (cm?.images?.length ? "📎 print" : ""));
+      return `<button type="button" class="av ${n.read ? "" : "unread"}" data-av="${n.decision_id || ""}" data-avn="${n.id}">
+        <span class="dot"></span>
+        <div style="min-width:0"><span class="who">${avatarHtml(n.actor_id, 18)} ${esc(nickOf(n.actor_id))}</span> <span class="what">${esc(notifText(n))}</span><span class="when">${fWhen(n.created_at)}</span>
+          ${quote ? `<p class="body">${bodyHtml(quote.length > 220 ? quote.slice(0, 220) + "…" : quote)}</p>` : ""}
+          <div class="where">📣 ${esc(d?.question || "dúvida que saiu do swap")}</div></div>
+      </button>`;
+    }
+    const d = getDec(c.decision_id);
     const pin = c.pin_id ? S.comments.find(x => x.id === c.pin_id) : null;
     return `<button type="button" class="av ${c.read ? "" : "unread"}" data-av="${c.decision_id}">
       <span class="dot"></span>
-      <div style="min-width:0"><span class="who">${esc(c.author_name)}</span><span class="when">${fWhen(c.created_at)}</span>
+      <div style="min-width:0"><span class="who">${esc(c.author_name)}</span> <span class="what">comentou no link compartilhado</span><span class="when">${fWhen(c.created_at)}</span>
         <p class="body">${esc(c.body)}</p>
-        <div class="where">em: ${esc(d?.question || "dúvida")}${pin ? ` · sobre a conclusão “${esc((pin.body || "print").slice(0, 60))}”` : ""}</div></div>
+        <div class="where">🔗 ${esc(d?.question || "dúvida")}${pin ? ` · sobre a conclusão “${esc((pin.body || "print").slice(0, 60))}”` : ""}</div></div>
     </button>`;
-  }).join("") : `<p class="muted" style="margin:0">Nenhum aviso ainda. Quando seus amigos comentarem num link compartilhado, aparece aqui.</p>`);
+  }).join("") : `<p class="muted" style="margin:0">Nenhum aviso ainda. Aqui aparecem comentários, menções e reações no swap e os comentários dos amigos nos links que você compartilhou.</p>`);
 }
-$("#av-list").addEventListener("click", e => {
+$("#av-list").addEventListener("click", async e => {
   const a = e.target.closest("[data-av]"); if (!a) return;
-  backTo = "maos"; navIds = null; location.hash = "duvida-" + a.dataset.av;
+  const nid = a.dataset.avn;
+  if (nid && S.notifs.some(n => n.id === nid && !n.read)) {
+    S.notifs = S.notifs.map(n => n.id === nid ? { ...n, read: true } : n);
+    sb.from("notifications").update({ read: true }).eq("id", nid).then(() => { });
+    renderBadges();
+  }
+  if (!a.dataset.av || !getDec(a.dataset.av)) { renderAvisos(); toast("Essa dúvida não está mais disponível.", true); return; }
+  backTo = postOf(a.dataset.av) && getDec(a.dataset.av).user_id !== S.user.id ? "forum" : "maos"; navIds = null; showIdx = null;
+  location.hash = "duvida-" + a.dataset.av;
 });
 $("#av-read-all").addEventListener("click", async () => {
-  const ids = S.friend.filter(c => !c.read).map(c => c.id); if (!ids.length) return;
-  try { await q(sb.from("share_comments").update({ read: true }).in("id", ids), "marcar como lido"); S.friend = S.friend.map(c => ({ ...c, read: true })); renderAll(); } catch { }
+  const fids = S.friend.filter(c => !c.read).map(c => c.id);
+  const nids = S.notifs.filter(n => !n.read).map(n => n.id);
+  try {
+    if (fids.length) { await q(sb.from("share_comments").update({ read: true }).in("id", fids), "marcar como lido"); S.friend = S.friend.map(c => ({ ...c, read: true })); }
+    if (nids.length) { await q(sb.from("notifications").update({ read: true }).in("id", nids), "marcar como lido"); S.notifs = S.notifs.map(n => ({ ...n, read: true })); }
+    renderAll();
+  } catch { }
 });
 let friendBusy = false;
 async function refreshFriend() {
@@ -1815,7 +2038,7 @@ async function refreshFriend() {
     const changed = data.length !== S.friend.length || data.some((c, i) => S.friend[i]?.id !== c.id || S.friend[i]?.read !== c.read);
     S.friend = data; data.forEach(c => friendSeen.add(c.id));
     if (fresh.length) toast(fresh.length === 1 ? `💬 ${fresh[0].author_name} comentou numa dúvida` : `💬 ${fresh.length} comentários novos dos amigos`);
-    if (changed) { renderBadges(); renderAvisos(); renderLibrary(); if (view === "duvida" && !document.activeElement?.matches("[data-freply], #cm-text, #ce-text")) renderDoubt(); }
+    if (changed) { renderBadges(); renderAvisos(); renderLibrary(); if (view === "duvida" && !document.activeElement?.matches(TYPING)) renderDoubt(); }
     if (view === "duvida" && fresh.some(c => c.decision_id === currentDec)) markFriendRead(currentDec);
   } finally { friendBusy = false; }
 }
@@ -1957,13 +2180,14 @@ async function checkUsageAlert() {
 
 /* ================= fórum do swap ================= */
 const FF = { q: "", status: "todos", author: "", tag: "" };
+const TYPING = "#cm-text, #ce-text, [data-freply], [data-poll-opt]"; // não redesenha a dúvida enquanto você digita nesses campos
 let forumKnown = null; // posts que já conhecia (para avisar dos novos)
 async function loadForum() {
   if (!S.user || !myGroupId()) { FX.loaded = true; return; }
   const { data: posts, error } = await sb.from("posts").select("*").order("created_at", { ascending: false });
   if (error) { FX.loaded = true; return; } // SQL 009 ainda não rodou
   const ids = posts.map(p => p.decision_id);
-  let decs = [], hs = [], imgs = [], cms = [], views = [];
+  let decs = [], hs = [], imgs = [], cms = [], views = [], reactions = [], polls = [], votes = [], voters = [];
   if (ids.length) {
     decs = (await sb.from("decisions").select("*").in("id", ids)).data || [];
     const handIds = [...new Set(decs.map(d => d.hand_id))];
@@ -1971,11 +2195,16 @@ async function loadForum() {
       handIds.length ? sb.from("hands").select("*").in("id", handIds) : { data: [] },
       handIds.length ? sb.from("hand_images").select("*").in("hand_id", handIds) : { data: [] },
       sb.from("comments").select("*").in("decision_id", ids),
-      sb.from("post_views").select("*").in("decision_id", ids)
+      sb.from("post_views").select("*").in("decision_id", ids),
+      // partes 2 e 3 (SQL 010): se ainda não rodou, voltam vazias
+      sb.from("reactions").select("*").in("decision_id", ids),
+      sb.from("polls").select("*").in("decision_id", ids),
+      sb.from("poll_votes").select("*").in("decision_id", ids),
+      sb.rpc("poll_voters", { ids })
     ]);
-    [hs, imgs, cms, views] = r.map(x => x.data || []);
+    [hs, imgs, cms, views, reactions, polls, votes, voters] = r.map(x => (!x.error && x.data) || []);
   }
-  Object.assign(FX, { posts, decisions: decs, hands: hs, images: imgs, views, loaded: true });
+  Object.assign(FX, { posts, decisions: decs, hands: hs, images: imgs, views, reactions, polls, votes, voters, loaded: true });
   S.comments = S.comments.filter(c => !ids.includes(c.decision_id)).concat(cms);
   await signImages([...imgs.map(i => i.path), ...cms.flatMap(c => c.images || [])]);
   if (!forumKnown) forumKnown = new Set(posts.map(p => p.id));
@@ -1989,6 +2218,7 @@ function forumItems() {
     if (FF.status === "abertos" && d.status === "revisada") return false;
     if (FF.status === "resolvidos" && d.status !== "revisada") return false;
     if (FF.status === "naovistos" && (post.user_id === S.user.id || seenByMe(d.id))) return false;
+    if (FF.status === "marcados" && !reactsOf(d.id).some(r => r.kind === "rever" && r.user_id === S.user.id)) return false;
     if (FF.author && post.user_id !== FF.author) return false;
     if (FF.tag && !d.tags?.includes(FF.tag)) return false;
     if (words.length) {
@@ -2009,6 +2239,9 @@ function forumCard({ post, d, h }) {
   const nc = commentsOf(d.id).length;
   const nv = FX.views.filter(v => v.decision_id === d.id && v.user_id !== d.user_id).length;
   const when = new Date(post.created_at);
+  const rs = reactsOf(d.id);
+  const rsum = REACTS.map(([k, e]) => { const n = rs.filter(r => r.kind === k).length; return n ? `<span title="${esc(whoNames(rs.filter(r => r.kind === k)))}">${e} ${n}</span>` : ""; }).join("");
+  const poll = pollOf(d.id);
   return `<button type="button" class="hand" data-fpost="${d.id}">
     <div class="thumb">${url ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async">` : `<span class="noimg">?</span>`}${imgs.length > 1 ? `<span class="n">${imgs.length} prints</span>` : ""}</div>
     <div class="body">
@@ -2017,7 +2250,7 @@ function forumCard({ post, d, h }) {
       <div class="top">${streetTag(d.street)}${h.hero_cards ? `<span class="cards">${esc(h.hero_cards.split(" · ")[0])}</span>` : ""}${h.position ? `<span class="pos">${esc(h.position)}</span>` : ""}</div>
       <div class="q">${esc(d.question || "Sem pergunta escrita")}</div>
       ${d.tags?.length ? `<div class="tags">${d.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}
-      <div class="fmeta"><span>${dayTitle(iso(when))}, ${when.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span><span>💬 ${nc}</span><span>👁 ${nv}</span></div>
+      <div class="fmeta"><span>${dayTitle(iso(when))}, ${when.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span><span>💬 ${nc}</span><span>👁 ${nv}</span>${poll ? `<span title="Votação às cegas">🗳</span>` : ""}${rsum}</div>
     </div></button>`;
 }
 function renderForum() {
@@ -2068,24 +2301,31 @@ async function markPostSeen(decId) {
   const row = { decision_id: decId, user_id: S.user.id, viewed_at: new Date().toISOString() };
   const { error } = await sb.from("post_views").upsert(row, { onConflict: "decision_id,user_id" });
   if (error) return;
-  FX.views = FX.views.filter(v => !(v.decision_id === decId && v.user_id === S.user.id)).concat(row);
+  const prev = FX.views.find(v => v.decision_id === decId && v.user_id === S.user.id);
+  FX.views = FX.views.filter(v => v !== prev).concat({ ...row, revealed: !!prev?.revealed });
   renderBadges();
-  if (!document.activeElement?.matches("#cm-text, #ce-text, [data-freply]")) renderDoubt();
+  if (!document.activeElement?.matches(TYPING)) renderDoubt();
 }
 let forumBusy = false;
 async function refreshForum() {
   if (!S.user || forumBusy || !myGroupId()) return;
   forumBusy = true;
   try {
-    const before = JSON.stringify([FX.posts.map(p => p.id), FX.views.length, S.comments.length]);
+    const sig = () => JSON.stringify([FX.posts.map(p => p.id), FX.views.map(v => v.user_id + v.revealed), S.comments.map(c => c.id + c.pinned + c.body), FX.reactions.map(r => r.id), FX.polls.map(p => p.decision_id + p.revealed), FX.votes.length, FX.voters.length, S.notifs.map(n => n.id + n.read)]);
+    const before = sig();
     await loadForum();
+    const notifs = await loadNotifs();
+    const freshN = notifs.filter(n => !notifSeen.has(n.id) && !n.read);
+    notifs.forEach(n => notifSeen.add(n.id)); S.notifs = notifs;
+    if (freshN.length) toast(freshN.length === 1 ? `🔔 ${nickOf(freshN[0].actor_id)} ${notifText(freshN[0])}` : `🔔 ${freshN.length} avisos novos`);
     const fresh = FX.posts.filter(p => !forumKnown.has(p.id) && p.user_id !== S.user.id);
     FX.posts.forEach(p => forumKnown.add(p.id));
     if (fresh.length) toast(fresh.length === 1 ? `📣 ${nickOf(fresh[0].user_id)} postou no swap` : `📣 ${fresh.length} posts novos no swap`);
-    if (JSON.stringify([FX.posts.map(p => p.id), FX.views.length, S.comments.length]) !== before) {
+    if (sig() !== before) {
       renderBadges();
       if (view === "forum") renderForum();
-      if (view === "duvida" && !document.activeElement?.matches("#cm-text, #ce-text, [data-freply]")) renderDoubt();
+      if (view === "avisos") renderAvisos();
+      if (view === "duvida") { if (!document.activeElement?.matches(TYPING)) renderDoubt(); if (freshN.some(n => n.decision_id === currentDec)) markNotifsRead(currentDec); }
     }
   } finally { forumBusy = false; }
 }
