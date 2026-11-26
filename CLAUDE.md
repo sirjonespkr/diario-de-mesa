@@ -18,6 +18,11 @@ Site pessoal (um único usuário, jogador profissional de poker, MTT) para organ
 - Primeiro acesso: o link do convite abre a tela de escolher nick e senha (`#setpass`); "Esqueci minha senha" usa o mesmo fluxo (type=recovery).
 - `ai_usage`: cada chamada de IA registra tokens e custo estimado (`api/_usage.js`, preços Sonnet 5.5 US$2/10 e Haiku 5.5 US$0,10/0,50 por milhão). Só o admin vê, pela função `admin_stats` (que também devolve armazenamento e tamanho do banco). Aviso no topo para o admin acima de 80% do plano grátis.
 
+## Fórum do swap (etapa 2, parte 1)
+- Tabela `posts` (uma dúvida postada num grupo) e `post_views` (visto por). Regras: o grupo lê só dúvidas postadas e a mão/prints/comentários delas (`decision_visible`, `hand_visible`, `forum_allows` no storage); membros comentam em posts; o dono da dúvida fixa comentários de qualquer um (gatilho `comments_guard` impede mudar o texto dos outros); admin tira posts do ar e apaga comentários de posts. A regra antiga `dono` de comments foi trocada por regras separadas (antes dava para comentar em dúvida alheia).
+- No navegador, dados pessoais são carregados com `eq("user_id", eu)`; o que veio do fórum fica em `FX` (posts, decisions, hands, images, views). Use `getDec`, `getHand`, `imagesOf`, `decisionsOf` (olham os dois). A página da dúvida (`renderDoubt`) serve para as minhas e para posts dos outros (`mine` esconde resolver/plantão/HRC/compartilhar/editar/fixar).
+- Tela `#forum` com busca e filtros (todos, não vistos, abertos, resolvidos, autor, spot); selo de não vistos no menu; atualiza a cada 60s.
+
 ## Modelo de dados
 - `hands`: dados da mão (sala, torneio, cartas, posição, stack inicial, board final, `situation` = resumo/história).
 - `hand_images`: prints da mão (`kind` = `mesa` ou `lobby`; prints com legenda começando por "lobby" viram `lobby` e a IA da mão ignora), com `caption` (legenda curta do jogador, estilo "cbet 1/3 C. Lead?").

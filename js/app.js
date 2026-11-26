@@ -53,9 +53,9 @@ async function q(promise, what) {
 
 async function loadAll() {
   const [hands, images, decisions, events, tasks, pregrind, leaks, tags, comments, shares, friend, profiles, members] = await Promise.all([
-    q(sb.from("hands").select("*").order("created_at", { ascending: false }), "carregar as mãos"),
-    q(sb.from("hand_images").select("*").order("sort"), "carregar os prints"),
-    q(sb.from("decisions").select("*").order("sort"), "carregar as dúvidas (rodou o SQL 003?)"),
+    q(sb.from("hands").select("*").eq("user_id", S.user.id).order("created_at", { ascending: false }), "carregar as mãos"),
+    q(sb.from("hand_images").select("*").eq("user_id", S.user.id).order("sort"), "carregar os prints"),
+    q(sb.from("decisions").select("*").eq("user_id", S.user.id).order("sort"), "carregar as dúvidas (rodou o SQL 003?)"),
     q(sb.from("events").select("*"), "carregar a agenda"),
     q(sb.from("tasks").select("*").order("created_at"), "carregar as tarefas"),
     q(sb.from("pregrind").select("*").order("created_at"), "carregar o pré-grind"),
@@ -88,10 +88,18 @@ async function signImages(paths) {
     data.forEach(d => { if (d.signedUrl) S.urls.set(d.path, d.signedUrl); });
   }
 }
-const imagesOf = id => S.images.filter(i => i.hand_id === id && i.kind !== "lobby").sort((a, b) => a.sort - b.sort);
-const lobbyOf = id => S.images.filter(i => i.hand_id === id && i.kind === "lobby").sort((a, b) => b.created_at.localeCompare(a.created_at))[0] || null;
+// dados do fórum (o que foi postado no swap, inclusive dos outros)
+const FX = { posts: [], decisions: [], hands: [], images: [], views: [], loaded: false };
+const uniq = arr => { const seen = new Set(); return arr.filter(x => !seen.has(x.id) && seen.add(x.id)); };
+const allImages = () => FX.images.length ? uniq(S.images.concat(FX.images)) : S.images;
+const getDec = id => S.decisions.find(x => x.id === id) || FX.decisions.find(x => x.id === id) || null;
+const getHand = id => S.hands.find(x => x.id === id) || FX.hands.find(x => x.id === id) || null;
+const postOf = decId => FX.posts.find(p => p.decision_id === decId) || null;
+const myGroupId = () => S.members.find(m => m.user_id === S.user.id)?.group_id || null;
+const imagesOf = id => allImages().filter(i => i.hand_id === id && i.kind !== "lobby").sort((a, b) => a.sort - b.sort);
+const lobbyOf = id => allImages().filter(i => i.hand_id === id && i.kind === "lobby").sort((a, b) => b.created_at.localeCompare(a.created_at))[0] || null;
 const isLobbyCaption = c => /^\s*lobby/i.test(c || "");
-const decisionsOf = id => S.decisions.filter(d => d.hand_id === id).sort((a, b) => a.sort - b.sort);
+const decisionsOf = id => uniq(S.decisions.concat(FX.decisions)).filter(d => d.hand_id === id).sort((a, b) => a.sort - b.sort);
 const commentsOf = id => S.comments.filter(c => c.decision_id === id).sort((a, b) => a.created_at.localeCompare(b.created_at));
 // uma dúvida do plantão conta como respondida se tem resposta, comentário fixado ou está resolvida
 const isAnswered = d => !!(d.plantao_answer || d.status === "revisada" || (d.id && S.comments.some(c => c.decision_id === d.id && c.pinned)));
@@ -156,6 +164,7 @@ async function start(user) {
   $("#who-mail").textContent = user.email;
   $("#avatar").textContent = (user.email || "?").slice(0, 2).toUpperCase();
   try { await loadAll(); } catch { /* já avisado */ }
+  try { await loadForum(); } catch (e) { console.error(e); }
   if (/access_token=/.test(location.hash)) history.replaceState(null, "", location.pathname);
   $("#app").hidden = false;
   fillStaticSelects();
@@ -174,15 +183,15 @@ $("#login-form").addEventListener("submit", async e => {
 $("#logout").addEventListener("click", () => sb.auth.signOut());
 
 /* ================= routing ================= */
-const VIEWS = ["hoje", "agenda", "pregrind", "avisos", "entrada", "maos", "duvida", "plantao", "leaks", "ajustes"];
+const VIEWS = ["hoje", "agenda", "pregrind", "avisos", "forum", "entrada", "maos", "duvida", "plantao", "leaks", "ajustes"];
 let currentDec = null;
 let view = "hoje";
 function route() {
   const hash = location.hash.slice(1);
-  if (hash.startsWith("duvida-")) { view = "duvida"; currentDec = hash.slice(7); showIdx = null; setTimeout(() => markFriendRead(currentDec), 1500); }
+  if (hash.startsWith("duvida-")) { view = "duvida"; currentDec = hash.slice(7); showIdx = null; setTimeout(() => { markFriendRead(currentDec); markPostSeen(currentDec); }, 1200); }
   else view = VIEWS.includes(hash) ? hash : "hoje";
   VIEWS.forEach(v => { $("#v-" + v).hidden = v !== view; });
-  const navView = view === "duvida" ? (backTo === "plantao" ? "plantao" : "maos") : view;
+  const navView = view === "duvida" ? (backTo === "plantao" ? "plantao" : backTo === "forum" ? "forum" : "maos") : view;
   $$(".side-nav a").forEach(a => { if (a.dataset.view === navView) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   closeSide();
   window.scrollTo(0, 0);
@@ -198,7 +207,7 @@ $("#scrim").addEventListener("click", closeSide);
 // desenha só a tela que está aberta (as outras são desenhadas quando você entra nelas)
 const RENDER = {
   hoje: () => renderToday(), agenda: () => renderAgenda(), pregrind: () => renderPregrind(), avisos: () => renderAvisos(),
-  entrada: () => renderInbox(), maos: () => renderLibrary(), duvida: () => renderDoubt(), plantao: () => renderPlantao(),
+  entrada: () => renderInbox(), maos: () => renderLibrary(), forum: () => renderForum(), duvida: () => renderDoubt(), plantao: () => renderPlantao(),
   leaks: () => renderLeaks(), ajustes: () => { renderTags(); renderShares(); renderAccount(); }
 };
 function renderAll() { renderBadges(); (RENDER[view] || (() => { }))(); }
@@ -212,7 +221,7 @@ function counts() {
 }
 function renderBadges() {
   const c = counts();
-  [["#b-avisos", S.friend.filter(c => !c.read).length], ["#b-entrada", S.hands.filter(isInbox).length], ["#b-maos", c.rever], ["#b-plantao", c.plantao], ["#b-pregrind", c.pregrind]].forEach(([sel, n]) => {
+  [["#b-forum", forumUnseen()], ["#b-avisos", S.friend.filter(c => !c.read).length], ["#b-entrada", S.hands.filter(isInbox).length], ["#b-maos", c.rever], ["#b-plantao", c.plantao], ["#b-pregrind", c.pregrind]].forEach(([sel, n]) => {
     const b = $(sel); b.hidden = !n; b.textContent = n;
   });
 }
@@ -305,7 +314,7 @@ function decCard({ d, h }) {
     <div class="thumb">${url ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async">` : `<span class="noimg">?</span>`}${imgs.length > 1 ? `<span class="n">${imgs.length} prints</span>` : ""}</div>
     <div class="body">
       <div class="top">${streetTag(d.street)}${h.hero_cards ? `<span class="cards">${esc(h.hero_cards.split(" · ")[0])}</span>` : ""}${h.position ? `<span class="pos">${esc(h.position)}</span>` : ""}
-        ${nNew ? `<span class="newc">💬 ${nNew} novo${nNew === 1 ? "" : "s"}</span>` : ""}${d.plantao ? `<span class="st pl">plantão</span>` : ""}<span class="st ${d.status === "revisada" ? "revisada" : "rever"}">${d.status === "revisada" ? "resolvida" : "aberta"}</span></div>
+        ${nNew ? `<span class="newc">💬 ${nNew} novo${nNew === 1 ? "" : "s"}</span>` : ""}${d.id && postOf(d.id) ? `<span class="st swap">📣</span>` : ""}${d.plantao ? `<span class="st pl">plantão</span>` : ""}<span class="st ${d.status === "revisada" ? "revisada" : "rever"}">${d.status === "revisada" ? "resolvida" : "aberta"}</span></div>
       ${h.tournament || h.site ? `<div class="tour">${esc([h.site, h.tournament].filter(Boolean).join(" · "))}${h.played_on ? " · " + shortDate(h.played_on) : ""}</div>` : ""}
       ${d.question ? `<div class="q">${esc(d.question)}</div>` : `<div class="q muted">Sem dúvida escrita</div>`}
       ${d.situation ? `<div class="sit">${esc(d.situation)}</div>` : ""}
@@ -452,14 +461,15 @@ const CM = { text: "", files: [] }; // rascunho do comentário
 const fmtWhen = iso => { const d = new Date(iso); return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) + " " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }); };
 
 function currentListIds() {
+  if (backTo === "forum") return forumItems().map(x => x.d.id);
   return (backTo === "plantao" ? libraryItems().filter(x => x.d.plantao) : filteredItems()).filter(x => x.d.id).map(x => x.d.id);
 }
 function doubtNav(d) {
   // usa a lista fixada no momento em que você abriu a dúvida; assim resolver/reabrir não tira a dúvida da navegação
-  let ids = navIds && navIds.includes(d.id) ? navIds.filter(id => S.decisions.some(x => x.id === id)) : currentListIds();
+  let ids = navIds && navIds.includes(d.id) ? navIds.filter(id => getDec(id)) : currentListIds();
   if (!ids.includes(d.id)) ids = [d.id];
   const pos = ids.indexOf(d.id);
-  const statusOf = id => S.decisions.find(x => x.id === id)?.status;
+  const statusOf = id => getDec(id)?.status;
   return {
     pos, total: ids.length,
     prev: pos > 0 ? ids[pos - 1] : null,
@@ -468,16 +478,27 @@ function doubtNav(d) {
     nextSame: status => ids.slice(pos + 1).find(id => statusOf(id) === status) || null
   };
 }
+const avatarHtml = (uid, size = 22) => { const n = nickOf(uid); return `<span class="avatar" style="background:${esc(colorOf(uid))};width:${size}px;height:${size}px;font-size:${Math.round(size * .4)}px">${esc(n.replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2).toUpperCase() || "?")}</span>`; };
+
+function seenLine(d) {
+  const post = postOf(d.id); if (!post) return "";
+  const others = S.members.filter(m => m.group_id === post.group_id && m.user_id !== d.user_id).map(m => m.user_id);
+  const seen = FX.views.filter(v => v.decision_id === d.id && v.user_id !== d.user_id).map(v => v.user_id);
+  const notSeen = others.filter(u => !seen.includes(u));
+  return `<div class="seen">👁 ${seen.length ? `Visto por ${seen.map(u => `<b>${esc(u === S.user.id ? "você" : nickOf(u))}</b>`).join(", ")}` : "Ninguém viu ainda"}${notSeen.length ? `<span class="muted"> · ainda não viram: ${notSeen.map(u => esc(u === S.user.id ? "você" : nickOf(u))).join(", ")}</span>` : ""}</div>`;
+}
 
 function renderDoubt() {
   const el = $("#v-duvida");
-  const d = S.decisions.find(x => x.id === currentDec);
-  const backLbl = backTo === "plantao" ? "Plantão" : "Biblioteca";
+  const d = getDec(currentDec);
+  const backLbl = backTo === "plantao" ? "Plantão" : backTo === "forum" ? "Fórum" : "Biblioteca";
   if (!d) {
-    setHTML(el, `<div class="dv-bar"><a class="btn sm" href="#${backTo}">← ${backLbl}</a></div><p class="empty">Essa dúvida não existe mais.</p>`);
+    setHTML(el, `<div class="dv-bar"><a class="btn sm" href="#${backTo}">← ${backLbl}</a></div><p class="empty">Essa dúvida não existe mais ou saiu do swap.</p>`);
     return;
   }
-  const h = S.hands.find(x => x.id === d.hand_id) || {};
+  const mine = d.user_id === S.user.id;
+  const post = postOf(d.id);
+  const h = getHand(d.hand_id) || {};
   const imgs = imagesOf(h.id);
   const myIdx = d.image_id ? imgs.findIndex(i => i.id === d.image_id) : -1;
   if (showIdx === null || showIdx >= imgs.length) showIdx = myIdx >= 0 ? myIdx : 0;
@@ -486,8 +507,10 @@ function renderDoubt() {
   const decs = decisionsOf(h.id), n = decs.findIndex(x => x.id === d.id);
   const cms = commentsOf(d.id), pins = cms.filter(c => c.pinned);
   const resolved = d.status === "revisada";
-  const leak = S.leaks.find(l => l.id === d.leak_id);
+  const leak = mine ? S.leaks.find(l => l.id === d.leak_id) : null;
   const fact = (label, val, wide) => val ? `<div class="${wide ? "wide" : ""}"><dt>${label}</dt><dd>${val}</dd></div>` : "";
+  const showAuthors = !!post || cms.some(c => c.user_id !== S.user.id);
+  const canDel = c => c.user_id === S.user.id || (S.isAdmin && post);
 
   setHTML(el, `
     <div class="dv-bar">
@@ -501,19 +524,26 @@ function renderDoubt() {
     <div class="dv-title">
       <div class="meta">${streetTag(d.street)}
         <span class="st ${resolved ? "revisada" : "rever"}" style="margin-left:0">${resolved ? "resolvida" : "aberta"}</span>
-        ${d.plantao ? `<span class="st pl">plantão</span>` : ""}
+        ${mine && d.plantao ? `<span class="st pl">plantão</span>` : ""}
+        ${post ? `<span class="st swap">📣 no swap</span>` : ""}
+        ${!mine ? `<span class="author">${avatarHtml(d.user_id)} ${esc(nickOf(d.user_id))}</span>` : ""}
         ${decs.length > 1 ? `<span class="muted" style="font-size:.8rem">Dúvida ${n + 1} de ${decs.length} nesta mão</span>` : ""}
       </div>
       <h1>${esc(d.question || "Sem pergunta escrita")}</h1>
       ${d.situation ? `<p class="muted" style="margin:0">${esc(d.situation)}</p>` : ""}
+      ${post ? seenLine(d) : ""}
       <div class="dv-actions">
-        ${resolved
+        ${mine ? (resolved
           ? `<button class="btn" type="button" data-act="toggle" title="Reabre esta dúvida e abre a próxima resolvida da lista">↺ Reabrir${nav.nextSame("revisada") ? " e ir para a próxima" : ""}</button>`
-          : `<button class="btn primary" type="button" data-act="toggle" title="Marca como resolvida e abre a próxima aberta da lista">✓ Marcar como resolvida${nav.nextSame("rever") ? " e ir para a próxima" : ""}</button>`}
-        <button class="btn" type="button" data-act="plantao" aria-pressed="${!!d.plantao}">${d.plantao ? "✓ No plantão" : "Levar pro plantão"}</button>
+          : `<button class="btn primary" type="button" data-act="toggle" title="Marca como resolvida e abre a próxima aberta da lista">✓ Marcar como resolvida${nav.nextSame("rever") ? " e ir para a próxima" : ""}</button>`) : ""}
+        ${mine && myGroupId() ? (post
+          ? `<button class="btn" type="button" data-act="unpost" title="Some do fórum para todos; continua na sua biblioteca">Tirar do swap</button>`
+          : `<button class="btn swap-btn" type="button" data-act="post" title="A mão, os prints, a discussão e a conclusão ficam visíveis para o swap">📣 Postar no swap</button>`) : ""}
+        ${!mine && post && S.isAdmin ? `<button class="btn danger" type="button" data-act="unpost">Tirar do swap (moderação)</button>` : ""}
+        ${mine ? `<button class="btn" type="button" data-act="plantao" aria-pressed="${!!d.plantao}">${d.plantao ? "✓ No plantão" : "Levar pro plantão"}</button>` : ""}
         ${imgs.length ? `<button class="btn" type="button" data-act="show">▶ Apresentar</button>` : ""}
-        <button class="btn" type="button" data-act="share">🔗 Compartilhar</button>
-        <button class="btn ghost" type="button" data-act="edit">Editar mão</button>
+        ${mine ? `<button class="btn" type="button" data-act="share">🔗 Compartilhar</button>
+        <button class="btn ghost" type="button" data-act="edit">Editar mão</button>` : ""}
       </div>
     </div>
 
@@ -531,13 +561,13 @@ function renderDoubt() {
           <div class="thread">
             ${cms.length ? cms.map(c => CE.id === c.id ? cmtEditor(c) : `
               <div class="cmt ${c.pinned ? "pinned" : ""}" data-cm="${c.id}">
-                <div class="cmt-h">${c.pinned ? `<span class="pin-lbl">📌 Conclusão</span>` : ""}<span>${fmtWhen(c.created_at)}</span><span class="spacer"></span>
-                  <button type="button" data-cm-act="pin">${c.pinned ? "Desafixar" : "Fixar como conclusão"}</button>
-                  <button type="button" data-cm-act="edit">Editar</button>
-                  <button type="button" data-cm-act="del">Excluir</button></div>
+                <div class="cmt-h">${showAuthors ? `<span class="author">${avatarHtml(c.user_id, 20)} <b>${esc(c.user_id === S.user.id ? "Você" : nickOf(c.user_id))}</b></span>` : ""}${c.pinned ? `<span class="pin-lbl">📌 Conclusão</span>` : ""}<span>${fmtWhen(c.created_at)}</span><span class="spacer"></span>
+                  ${mine ? `<button type="button" data-cm-act="pin">${c.pinned ? "Desafixar" : "Fixar como conclusão"}</button>` : ""}
+                  ${c.user_id === S.user.id ? `<button type="button" data-cm-act="edit">Editar</button>` : ""}
+                  ${canDel(c) ? `<button type="button" data-cm-act="del">Excluir</button>` : ""}</div>
                 ${c.body ? `<div class="cmt-body">${esc(c.body)}</div>` : ""}
                 ${c.images?.length ? `<div class="cmt-imgs">${c.images.map(p => `<img src="${esc(S.urls.get(p) || "")}" alt="Print do comentário" data-zoom-cm>`).join("")}</div>` : ""}
-              </div>`).join("") : `<p class="muted" style="margin:0;font-size:.88rem">Use este espaço para ir resolvendo a dúvida: anotações, o que o solver mostrou, a resposta do coach, prints de range. Quando chegar numa resposta, fixe como conclusão e marque como resolvida.</p>`}
+              </div>`).join("") : `<p class="muted" style="margin:0;font-size:.88rem">${mine ? "Use este espaço para ir resolvendo a dúvida: anotações, o que o solver mostrou, a resposta do coach, prints de range. Quando chegar numa resposta, fixe como conclusão e marque como resolvida." : "Ninguém comentou ainda. O que você faria nessa mão?"}</p>`}
           </div>
           <div class="composer" id="cm-box">
             <textarea id="cm-text" placeholder="Escreva um comentário. Cole prints com Ctrl+V ou arraste para cá.">${esc(CM.text)}</textarea>
@@ -548,7 +578,7 @@ function renderDoubt() {
             </div>
           </div>
         </div>
-        ${friendsCard(d)}
+        ${mine ? friendsCard(d) : ""}
       </div>
 
       <div class="dv-side">
@@ -556,8 +586,8 @@ function renderDoubt() {
           ${d.conclusion ? `<p class="dv-text">${esc(d.conclusion)}</p>` : ""}
           ${pins.map(c => `${c.body ? `<p class="dv-text">${esc(c.body)}</p>` : ""}${c.images?.length ? `<div class="cmt-imgs">${c.images.map(p => `<img src="${esc(S.urls.get(p) || "")}" alt="" data-zoom-cm>`).join("")}</div>` : ""}`).join("")}
         </div>` : ""}
-        ${d.plantao && d.plantao_answer ? `<div class="card"><h2>Resposta do plantão</h2><p class="dv-text">${esc(d.plantao_answer)}</p></div>` : ""}
-        ${hrcPanel(h)}
+        ${mine && d.plantao && d.plantao_answer ? `<div class="card"><h2>Resposta do plantão</h2><p class="dv-text">${esc(d.plantao_answer)}</p></div>` : ""}
+        ${mine ? hrcPanel(h) : ""}
         <div class="card">
           <h2>A mão</h2>
           <dl class="dv-facts" style="margin:0">
@@ -572,7 +602,7 @@ function renderDoubt() {
             ${leak ? fact("Leak", esc(leak.title), true) : ""}
           </dl>
         </div>
-        ${decs.length > 1 ? `<div class="card"><h2>Outras dúvidas desta mão</h2>
+        ${decs.length > 1 ? `<div class="card"><h2>${mine ? "Outras dúvidas desta mão" : "Outras dúvidas desta mão no swap"}</h2>
           <div class="stack">${decs.map((x, k) => x.id === d.id ? "" : `<button type="button" class="btn ghost" style="justify-content:flex-start;white-space:normal;text-align:left" data-go="${x.id}">${streetTag(x.street)} ${esc(x.question || "Dúvida " + (k + 1))}${x.status === "revisada" ? ` <span class="st revisada">resolvida</span>` : ""}</button>`).join("")}</div></div>` : ""}
       </div>
     </div>`);
@@ -634,7 +664,8 @@ $("#v-duvida").addEventListener("keydown", e => {
 });
 $("#v-duvida").addEventListener("click", async e => {
   const t = e.target;
-  const d = S.decisions.find(x => x.id === currentDec); if (!d) return;
+  const d = getDec(currentDec); if (!d) return;
+  const mine = d.user_id === S.user.id;
   const go = t.closest("[data-go]"); if (go) { if (go.dataset.go) { CM.text = ""; endEdit(); location.hash = "duvida-" + go.dataset.go; } return; }
   const sh = t.closest("[data-show]"); if (sh) { showIdx = +sh.dataset.show; renderDoubt(); return; }
   if (t.closest("[data-stage]")) { openShow(d, showIdx); return; }
@@ -647,6 +678,8 @@ $("#v-duvida").addEventListener("click", async e => {
   if (hb) { hrcAction(hb.dataset.hrc, d); return; }
   const act = t.closest("[data-act]")?.dataset.act;
   try {
+    if ((act === "post" || act === "unpost") && (mine || S.isAdmin)) { await togglePost(d, act, t.closest("[data-act]")); return; }
+    if (!mine && ["toggle", "plantao", "share", "edit"].includes(act)) return;
     if (act === "toggle") {
       const before = d.status === "revisada" ? "revisada" : "rever";
       const next = doubtNav(d).nextSame(before);
@@ -686,6 +719,7 @@ $("#v-duvida").addEventListener("click", async e => {
   const ca = t.closest("[data-cm-act]");
   if (ca) {
     const c = S.comments.find(x => x.id === ca.closest("[data-cm]").dataset.cm); if (!c) return;
+    if (ca.dataset.cmAct === "pin" && !mine) return;
     try {
       if (ca.dataset.cmAct === "edit") {
         endEdit(); CE.id = c.id; CE.text = c.body || ""; CE.keep = [...(c.images || [])];
@@ -1921,13 +1955,152 @@ async function checkUsageAlert() {
   } catch { }
 }
 
+/* ================= fórum do swap ================= */
+const FF = { q: "", status: "todos", author: "", tag: "" };
+let forumKnown = null; // posts que já conhecia (para avisar dos novos)
+async function loadForum() {
+  if (!S.user || !myGroupId()) { FX.loaded = true; return; }
+  const { data: posts, error } = await sb.from("posts").select("*").order("created_at", { ascending: false });
+  if (error) { FX.loaded = true; return; } // SQL 009 ainda não rodou
+  const ids = posts.map(p => p.decision_id);
+  let decs = [], hs = [], imgs = [], cms = [], views = [];
+  if (ids.length) {
+    decs = (await sb.from("decisions").select("*").in("id", ids)).data || [];
+    const handIds = [...new Set(decs.map(d => d.hand_id))];
+    const r = await Promise.all([
+      handIds.length ? sb.from("hands").select("*").in("id", handIds) : { data: [] },
+      handIds.length ? sb.from("hand_images").select("*").in("hand_id", handIds) : { data: [] },
+      sb.from("comments").select("*").in("decision_id", ids),
+      sb.from("post_views").select("*").in("decision_id", ids)
+    ]);
+    [hs, imgs, cms, views] = r.map(x => x.data || []);
+  }
+  Object.assign(FX, { posts, decisions: decs, hands: hs, images: imgs, views, loaded: true });
+  S.comments = S.comments.filter(c => !ids.includes(c.decision_id)).concat(cms);
+  await signImages([...imgs.map(i => i.path), ...cms.flatMap(c => c.images || [])]);
+  if (!forumKnown) forumKnown = new Set(posts.map(p => p.id));
+}
+const seenByMe = decId => FX.views.some(v => v.decision_id === decId && v.user_id === S.user.id);
+function forumUnseen() { return FX.posts.filter(p => p.user_id !== S.user.id && !seenByMe(p.decision_id)).length; }
+function forumItems() {
+  const words = FF.q.toLowerCase().split(/\s+/).filter(Boolean);
+  return FX.posts.map(p => ({ post: p, d: getDec(p.decision_id), h: getHand(getDec(p.decision_id)?.hand_id) })).filter(({ post, d, h }) => {
+    if (!d || !h) return false;
+    if (FF.status === "abertos" && d.status === "revisada") return false;
+    if (FF.status === "resolvidos" && d.status !== "revisada") return false;
+    if (FF.status === "naovistos" && (post.user_id === S.user.id || seenByMe(d.id))) return false;
+    if (FF.author && post.user_id !== FF.author) return false;
+    if (FF.tag && !d.tags?.includes(FF.tag)) return false;
+    if (words.length) {
+      const caps = imagesOf(h.id).map(i => i.caption || "");
+      const cms = commentsOf(d.id).map(c => c.body || "");
+      const hay = [nickOf(post.user_id), h.tournament, h.situation, h.hero_cards, h.board, h.site, h.position, d.situation, d.question, STREETS[d.street], ...(d.tags || []), ...caps, ...cms].join(" ").toLowerCase();
+      if (!words.every(w => hay.includes(w))) return false;
+    }
+    return true;
+  });
+}
+function forumCard({ post, d, h }) {
+  const imgs = imagesOf(h.id);
+  const img = (d.image_id && imgs.find(i => i.id === d.image_id)) || imgs[0];
+  const url = img && S.urls.get(img.path);
+  const mine = post.user_id === S.user.id;
+  const isNew = !mine && !seenByMe(d.id);
+  const nc = commentsOf(d.id).length;
+  const nv = FX.views.filter(v => v.decision_id === d.id && v.user_id !== d.user_id).length;
+  const when = new Date(post.created_at);
+  return `<button type="button" class="hand" data-fpost="${d.id}">
+    <div class="thumb">${url ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async">` : `<span class="noimg">?</span>`}${imgs.length > 1 ? `<span class="n">${imgs.length} prints</span>` : ""}</div>
+    <div class="body">
+      <div class="top"><span class="author">${avatarHtml(post.user_id, 20)} ${esc(mine ? "Você" : nickOf(post.user_id))}</span>${isNew ? `<span class="newp">NOVO</span>` : ""}
+        <span class="st ${d.status === "revisada" ? "revisada" : "rever"}">${d.status === "revisada" ? "resolvida" : "aberta"}</span></div>
+      <div class="top">${streetTag(d.street)}${h.hero_cards ? `<span class="cards">${esc(h.hero_cards.split(" · ")[0])}</span>` : ""}${h.position ? `<span class="pos">${esc(h.position)}</span>` : ""}</div>
+      <div class="q">${esc(d.question || "Sem pergunta escrita")}</div>
+      ${d.tags?.length ? `<div class="tags">${d.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}
+      <div class="fmeta"><span>${dayTitle(iso(when))}, ${when.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span><span>💬 ${nc}</span><span>👁 ${nv}</span></div>
+    </div></button>`;
+}
+function renderForum() {
+  const authors = [...new Set(FX.posts.map(p => p.user_id))];
+  setHTML("#ff-author", `<option value="">Todos os autores</option>` + authors.map(u => `<option value="${u}" ${FF.author === u ? "selected" : ""}>${esc(u === S.user.id ? "Você" : nickOf(u))}</option>`).join(""));
+  const tags = [...new Set(FX.decisions.flatMap(d => d.tags || []))].sort();
+  setHTML("#ff-tag", `<option value="">Todos os spots</option>` + tags.map(t => `<option ${FF.tag === t ? "selected" : ""}>${esc(t)}</option>`).join(""));
+  if (!myGroupId()) { setHTML("#forum-grid", `<p class="empty" style="grid-column:1/-1">Você ainda não está em nenhum grupo.</p>`); return; }
+  const list = forumItems();
+  setHTML("#forum-grid", list.length ? list.map(forumCard).join("")
+    : `<p class="empty" style="grid-column:1/-1">${FX.posts.length ? "Nada com esses filtros." : "Ninguém postou ainda. Abra uma dúvida sua na Biblioteca e clique em “📣 Postar no swap”."}</p>`);
+}
+$("#ff-q").addEventListener("input", e => { FF.q = e.target.value; renderForum(); });
+$("#ff-author").addEventListener("change", e => { FF.author = e.target.value; renderForum(); });
+$("#ff-tag").addEventListener("change", e => { FF.tag = e.target.value; renderForum(); });
+$("#ff-status").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  FF.status = b.dataset.s; $$("#ff-status button").forEach(x => x.setAttribute("aria-pressed", x === b)); renderForum();
+});
+$("#ff-refresh").addEventListener("click", () => refreshForum().then(() => toast("Fórum atualizado")));
+$("#forum-grid").addEventListener("click", e => {
+  const c = e.target.closest("[data-fpost]"); if (!c) return;
+  backTo = "forum"; navIds = forumItems().map(x => x.d.id); showIdx = null;
+  location.hash = "duvida-" + c.dataset.fpost;
+});
+
+async function togglePost(d, act, btn) {
+  if (act === "post") {
+    if (!btn.hasAttribute("data-armed")) { btn.setAttribute("data-armed", ""); btn.textContent = "Confirmar: a mão, os prints, a discussão e a conclusão ficam visíveis para o swap"; return; }
+    try {
+      await q(sb.from("posts").insert({ group_id: myGroupId(), decision_id: d.id }), "postar no swap (rodou o SQL 009?)");
+      await loadForum(); toast("📣 Postado no swap"); renderAll();
+    } catch { }
+  } else {
+    if (!btn.hasAttribute("data-armed")) { btn.setAttribute("data-armed", ""); btn.textContent = "Confirmar: tirar do swap"; return; }
+    try {
+      await q(sb.from("posts").delete().eq("decision_id", d.id), "tirar do swap");
+      FX.posts = FX.posts.filter(p => p.decision_id !== d.id);
+      toast("Tirado do swap");
+      if (d.user_id !== S.user.id) { location.hash = "forum"; }
+      await loadForum(); renderAll();
+    } catch { }
+  }
+}
+async function markPostSeen(decId) {
+  if (view !== "duvida" || currentDec !== decId) return;
+  const d = getDec(decId); if (!d || d.user_id === S.user.id || !postOf(decId)) return;
+  const row = { decision_id: decId, user_id: S.user.id, viewed_at: new Date().toISOString() };
+  const { error } = await sb.from("post_views").upsert(row, { onConflict: "decision_id,user_id" });
+  if (error) return;
+  FX.views = FX.views.filter(v => !(v.decision_id === decId && v.user_id === S.user.id)).concat(row);
+  renderBadges();
+  if (!document.activeElement?.matches("#cm-text, #ce-text, [data-freply]")) renderDoubt();
+}
+let forumBusy = false;
+async function refreshForum() {
+  if (!S.user || forumBusy || !myGroupId()) return;
+  forumBusy = true;
+  try {
+    const before = JSON.stringify([FX.posts.map(p => p.id), FX.views.length, S.comments.length]);
+    await loadForum();
+    const fresh = FX.posts.filter(p => !forumKnown.has(p.id) && p.user_id !== S.user.id);
+    FX.posts.forEach(p => forumKnown.add(p.id));
+    if (fresh.length) toast(fresh.length === 1 ? `📣 ${nickOf(fresh[0].user_id)} postou no swap` : `📣 ${fresh.length} posts novos no swap`);
+    if (JSON.stringify([FX.posts.map(p => p.id), FX.views.length, S.comments.length]) !== before) {
+      renderBadges();
+      if (view === "forum") renderForum();
+      if (view === "duvida" && !document.activeElement?.matches("#cm-text, #ce-text, [data-freply]")) renderDoubt();
+    }
+  } finally { forumBusy = false; }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshForum(); });
+window.addEventListener("focus", () => refreshForum());
+window.addEventListener("hashchange", () => { if (location.hash === "#forum") refreshForum(); });
+setInterval(() => { if (!document.hidden) refreshForum(); }, 60000);
+
 // busca prints novos enviados pelo PC: ao voltar para a aba, ao abrir a caixa e a cada 20s com ela aberta
 let inboxBusy = false;
 async function refreshInbox() {
   if (!S.user || inboxBusy) return;
   inboxBusy = true;
   try {
-    const { data: hs, error } = await sb.from("hands").select("*").eq("status", "inbox").order("created_at", { ascending: false });
+    const { data: hs, error } = await sb.from("hands").select("*").eq("user_id", S.user.id).eq("status", "inbox").order("created_at", { ascending: false });
     if (error) return;
     const ids = hs.map(h => h.id);
     let imgs = [];

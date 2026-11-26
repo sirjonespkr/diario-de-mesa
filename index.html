@@ -52,6 +52,7 @@
       <a href="#pregrind" data-view="pregrind"><span class="ico">✓</span>Pré-grind<b class="badge" id="b-pregrind" hidden></b></a>
       <a href="#avisos" data-view="avisos"><span class="ico">🔔</span>Avisos<b class="badge warn" id="b-avisos" hidden></b></a>
       <div class="side-label">Estudo</div>
+      <a href="#forum" data-view="forum"><span class="ico">📣</span>Fórum do swap<b class="badge warn" id="b-forum" hidden></b></a>
       <a href="#entrada" data-view="entrada"><span class="ico">⇣</span>Caixa de entrada<b class="badge warn" id="b-entrada" hidden></b></a>
       <a href="#maos" data-view="maos"><span class="ico">♠</span>Biblioteca de mãos<b class="badge" id="b-maos" hidden></b></a>
       <a href="#plantao" data-view="plantao"><span class="ico">?</span>Plantão<b class="badge warn" id="b-plantao" hidden></b></a>
@@ -144,6 +145,26 @@
         </div>
         <div class="drop-hint" id="drop-hint">Cole um print (<kbd>Ctrl</kbd>+<kbd>V</kbd>) ou arraste imagens aqui para criar uma mão. Cada card abaixo é uma dúvida.</div>
         <div class="days" id="hand-grid"></div>
+      </section>
+
+      <!-- FÓRUM -->
+      <section class="view" id="v-forum" hidden>
+        <div class="page-h">
+          <div><div class="eyebrow">Swap</div><h1>Fórum do swap</h1><p class="muted">Dúvidas que o pessoal postou. Para postar uma sua, abra a dúvida na Biblioteca e clique em “📣 Postar no swap”.</p></div>
+          <button class="btn sm" type="button" id="ff-refresh">↻ Atualizar</button>
+        </div>
+        <div class="filters forum-filters">
+          <input type="search" id="ff-q" placeholder="Buscar pergunta, comentário, torneio, cartas…" aria-label="Buscar no fórum">
+          <div class="chips" id="ff-status">
+            <button data-s="todos" aria-pressed="true">Todos</button>
+            <button data-s="naovistos">Não vistos</button>
+            <button data-s="abertos">Abertos</button>
+            <button data-s="resolvidos">Resolvidos</button>
+          </div>
+          <select id="ff-author" aria-label="Filtrar por autor"><option value="">Todos os autores</option></select>
+          <select id="ff-tag" aria-label="Filtrar por spot"><option value="">Todos os spots</option></select>
+        </div>
+        <div class="hand-grid" id="forum-grid"></div>
       </section>
 
       <!-- AVISOS -->

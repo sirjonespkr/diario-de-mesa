@@ -324,6 +324,18 @@ dialog.show[open]{display:flex}
 .unsaved{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--gold);border-radius:10px;padding:10px 12px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
 .unsaved span{flex:1;min-width:180px;font-weight:600;color:var(--gold)}
 
+/* fórum */
+.st.swap{background:rgba(111,156,240,.15);color:var(--blue);margin-left:0}
+.author{display:inline-flex;align-items:center;gap:6px;font-size:.82rem}
+.author .avatar{flex:none}
+.seen{font-size:.82rem;overflow-wrap:anywhere}
+.swap-btn{border-color:var(--blue);color:var(--blue);background:rgba(111,156,240,.1)}
+.swap-btn[data-armed]{background:var(--blue);color:#0b0e11}
+.forum-filters{grid-template-columns:minmax(200px,1.6fr) auto minmax(140px,1fr) minmax(140px,1fr)}
+@media (max-width:1100px){.forum-filters{grid-template-columns:1fr 1fr}}
+.hand .newp{font-size:.66rem;font-weight:800;background:var(--blue);color:#0b0e11;border-radius:999px;padding:1px 7px}
+.hand .fmeta{display:flex;gap:10px;font-size:.74rem;color:var(--muted);font-family:var(--f-mono)}
+
 /* contas e admin */
 .admin-alert{background:var(--gold-soft);border:1px solid var(--gold);color:var(--ink);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:.88rem}
 .admin-alert a{color:var(--gold);font-weight:700}
