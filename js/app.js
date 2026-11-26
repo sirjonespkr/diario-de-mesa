@@ -38,10 +38,12 @@ function fail(e, what) {
 }
 
 /* ================= supabase ================= */
+// links do e-mail (convite ou "esqueci minha senha") chegam com #...type=invite|recovery
+const AUTH_LINK = (/[#&]type=(invite|recovery|signup|magiclink)/.exec(location.hash) || [])[1] || null;
 const configured = !SUPABASE_URL.startsWith("COLE_") && !!window.supabase;
 const sb = configured ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
-const S = { user: null, hands: [], images: [], decisions: [], comments: [], shares: [], friend: [], events: [], tasks: [], pregrind: [], leaks: [], tags: [], urls: new Map() };
+const S = { user: null, me: null, profiles: [], members: [], isAdmin: false, hands: [], images: [], decisions: [], comments: [], shares: [], friend: [], events: [], tasks: [], pregrind: [], leaks: [], tags: [], urls: new Map() };
 
 async function q(promise, what) {
   const { data, error } = await promise;
@@ -50,7 +52,7 @@ async function q(promise, what) {
 }
 
 async function loadAll() {
-  const [hands, images, decisions, events, tasks, pregrind, leaks, tags, comments, shares, friend] = await Promise.all([
+  const [hands, images, decisions, events, tasks, pregrind, leaks, tags, comments, shares, friend, profiles, members] = await Promise.all([
     q(sb.from("hands").select("*").order("created_at", { ascending: false }), "carregar as mãos"),
     q(sb.from("hand_images").select("*").order("sort"), "carregar os prints"),
     q(sb.from("decisions").select("*").order("sort"), "carregar as dúvidas (rodou o SQL 003?)"),
@@ -61,9 +63,13 @@ async function loadAll() {
     q(sb.from("tags").select("*").order("sort"), "carregar os spots"),
     q(sb.from("comments").select("*").order("created_at"), "carregar os comentários (rodou o SQL 004?)").catch(() => []),
     sb.from("shares").select("*").order("created_at", { ascending: false }).then(r => r.error ? [] : r.data),
-    sb.from("share_comments").select("*").order("created_at").then(r => r.error ? [] : r.data)
+    sb.from("share_comments").select("*").order("created_at").then(r => r.error ? [] : r.data),
+    sb.from("profiles").select("*").then(r => r.error ? [] : r.data),
+    sb.from("group_members").select("*").then(r => r.error ? [] : r.data)
   ]);
-  Object.assign(S, { hands, images, decisions, events, tasks, pregrind, leaks, tags, comments, shares, friend });
+  Object.assign(S, { hands, images, decisions, events, tasks, pregrind, leaks, tags, comments, shares, friend, profiles, members });
+  S.me = profiles.find(p => p.user_id === S.user.id) || null;
+  S.isAdmin = members.some(m => m.user_id === S.user.id && m.role === "admin");
   friendSeen = new Set(friend.map(c => c.id));
   if (!tags.length) {
     const rows = DEFAULT_TAGS.map((name, i) => ({ user_id: S.user.id, name, sort: i }));
@@ -101,10 +107,48 @@ async function boot() {
   const { data: { session } } = await sb.auth.getSession();
   sb.auth.onAuthStateChange((ev, s) => {
     if (ev === "SIGNED_OUT") location.reload();
-    if (ev === "SIGNED_IN" && !S.user && s) start(s.user);
+    if (ev === "PASSWORD_RECOVERY" && s) { showSetPass("recovery"); return; }
+    if (ev === "SIGNED_IN" && !S.user && s && !setPassMode) start(s.user);
   });
-  if (session) start(session.user); else $("#login").hidden = false;
+  if (session && (AUTH_LINK === "invite" || AUTH_LINK === "recovery")) { showSetPass(AUTH_LINK); return; }
+  if (session) start(session.user);
+  else {
+    $("#login").hidden = false;
+    if (AUTH_LINK) $("#login-msg").textContent = "Esse link expirou ou já foi usado. Peça um novo convite ou use “Esqueci minha senha”.";
+  }
 }
+
+// primeiro acesso pelo convite (escolhe nick e senha) ou "esqueci minha senha" (só a senha)
+let setPassMode = null;
+function showSetPass(mode) {
+  setPassMode = mode;
+  $("#login").hidden = true; $("#app").hidden = true; $("#setpass").hidden = false;
+  const rec = mode === "recovery";
+  $("#sp-title").textContent = rec ? "Criar nova senha" : "Bem-vindo ao swap!";
+  $("#sp-msg").textContent = rec ? "Digite a nova senha para entrar." : "Escolha como vai aparecer para o pessoal e crie sua senha.";
+  $("#sp-nick-wrap").hidden = rec;
+  $("#sp-nick").required = !rec;
+  setTimeout(() => (rec ? $("#sp-pass") : $("#sp-nick")).focus(), 50);
+}
+$("#setpass-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const p1 = $("#sp-pass").value, p2 = $("#sp-pass2").value, nick = $("#sp-nick").value.trim();
+  if (p1.length < 6) { $("#sp-msg").textContent = "A senha precisa ter pelo menos 6 caracteres."; return; }
+  if (p1 !== p2) { $("#sp-msg").textContent = "As duas senhas não são iguais."; return; }
+  const btn = $("#sp-btn"); btn.disabled = true; btn.textContent = "Salvando…";
+  const { data, error } = await sb.auth.updateUser({ password: p1 });
+  if (error) { $("#sp-msg").textContent = "Não deu para salvar a senha: " + error.message; btn.disabled = false; btn.textContent = "Salvar e entrar"; return; }
+  if (setPassMode === "invite" && nick) await sb.from("profiles").upsert({ user_id: data.user.id, nick });
+  history.replaceState(null, "", location.pathname);
+  setPassMode = null; $("#setpass").hidden = true;
+  start(data.user);
+});
+$("#forgot-btn").addEventListener("click", async () => {
+  const email = $("#login-email").value.trim();
+  if (!email) { $("#login-msg").textContent = "Digite seu e-mail acima e clique de novo em “Esqueci minha senha”."; $("#login-email").focus(); return; }
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + "/" });
+  $("#login-msg").textContent = error ? "Não deu para enviar: " + error.message : "Se esse e-mail tiver conta, chegou um link para criar uma nova senha (olhe o spam).";
+});
 
 async function start(user) {
   S.user = user;
@@ -112,9 +156,12 @@ async function start(user) {
   $("#who-mail").textContent = user.email;
   $("#avatar").textContent = (user.email || "?").slice(0, 2).toUpperCase();
   try { await loadAll(); } catch { /* já avisado */ }
+  if (/access_token=/.test(location.hash)) history.replaceState(null, "", location.pathname);
   $("#app").hidden = false;
   fillStaticSelects();
+  renderWho();
   route(); renderAll();
+  if (S.isAdmin) checkUsageAlert();
 }
 
 $("#login-form").addEventListener("submit", async e => {
@@ -123,13 +170,6 @@ $("#login-form").addEventListener("submit", async e => {
   const { error } = await sb.auth.signInWithPassword({ email: $("#login-email").value.trim(), password: $("#login-pass").value });
   btn.disabled = false;
   if (error) $("#login-msg").textContent = "E-mail ou senha incorretos. " + (error.message.includes("confirm") ? "Confirme o e-mail antes de entrar." : "");
-});
-$("#signup-btn").addEventListener("click", async () => {
-  const email = $("#login-email").value.trim(), password = $("#login-pass").value;
-  if (!email || password.length < 6) { $("#login-msg").textContent = "Preencha e-mail e uma senha com pelo menos 6 caracteres."; return; }
-  const { data, error } = await sb.auth.signUp({ email, password });
-  if (error) { $("#login-msg").textContent = "Não deu para criar a conta: " + error.message; return; }
-  $("#login-msg").textContent = data.session ? "Conta criada!" : "Conta criada. Abra o e-mail de confirmação e depois entre aqui.";
 });
 $("#logout").addEventListener("click", () => sb.auth.signOut());
 
@@ -159,7 +199,7 @@ $("#scrim").addEventListener("click", closeSide);
 const RENDER = {
   hoje: () => renderToday(), agenda: () => renderAgenda(), pregrind: () => renderPregrind(), avisos: () => renderAvisos(),
   entrada: () => renderInbox(), maos: () => renderLibrary(), duvida: () => renderDoubt(), plantao: () => renderPlantao(),
-  leaks: () => renderLeaks(), ajustes: () => { renderTags(); renderShares(); }
+  leaks: () => renderLeaks(), ajustes: () => { renderTags(); renderShares(); renderAccount(); }
 };
 function renderAll() { renderBadges(); (RENDER[view] || (() => { }))(); }
 
@@ -1145,7 +1185,7 @@ async function runAI(manual) {
     const r = await fetch("/api/analyze", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer " + (session?.access_token || "") },
-      body: JSON.stringify({ images, captions: vis.slice(0, 8).map(i => i.caption || ""), tags: S.tags.map(t => t.name), sites: SITES, positions: POSITIONS, heroNicks: HERO_NICKS })
+      body: JSON.stringify({ images, captions: vis.slice(0, 8).map(i => i.caption || ""), tags: S.tags.map(t => t.name), sites: SITES, positions: POSITIONS, heroNicks: (S.me?.room_nicks?.length ? S.me.room_nicks : HERO_NICKS) })
     });
     const j = await r.json().catch(() => ({}));
     if (seq !== aiSeq || !dlgHand.open) return;
@@ -1656,7 +1696,7 @@ document.addEventListener("click", async e => {
 
 /* ================= comentários dos amigos e avisos ================= */
 let friendSeen = new Set();
-const OWNER_NAME = HERO_NICKS[0] || "Autor";
+const ownerName = () => S.me?.nick || HERO_NICKS[0] || "Autor";
 const fWhen = iso => { const d = new Date(iso); return `${dayTitle(iso_(d))}, ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`; };
 const iso_ = d => iso(d);
 function friendsCard(d) {
@@ -1683,7 +1723,7 @@ async function sendFriendReply(pinKey) {
   const d = S.decisions.find(x => x.id === currentDec); if (!d) return;
   const input = $(`[data-freply="${pinKey}"]`); const body = (input?.value || "").trim(); if (!body) { input?.focus(); return; }
   try {
-    const r = await q(sb.from("share_comments").insert({ owner_id: S.user.id, decision_id: d.id, pin_id: pinKey || null, author_name: OWNER_NAME, is_owner: true, body, read: true }).select().single(), "enviar a resposta (rodou o SQL 007?)");
+    const r = await q(sb.from("share_comments").insert({ owner_id: S.user.id, decision_id: d.id, pin_id: pinKey || null, author_name: ownerName(), is_owner: true, body, read: true }).select().single(), "enviar a resposta (rodou o SQL 007?)");
     S.friend.push(r); friendSeen.add(r.id); renderDoubt(); toast("Resposta enviada");
   } catch { }
 }
@@ -1748,6 +1788,138 @@ async function refreshFriend() {
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshFriend(); });
 window.addEventListener("focus", () => refreshFriend());
 setInterval(() => { if (!document.hidden) refreshFriend(); }, 60000);
+
+/* ================= conta, perfil, membros e uso (admin) ================= */
+const COLORS = { verde: "#34c38f", azul: "#6f9cf0", ouro: "#e0b04a", vermelho: "#ef5a54", roxo: "#a98bf0", rosa: "#f07ab8", ciano: "#4cc9d8", laranja: "#f0923c" };
+const nickOf = uid => S.profiles.find(p => p.user_id === uid)?.nick || "Alguém";
+const colorOf = uid => S.profiles.find(p => p.user_id === uid)?.color || COLORS.azul;
+function renderWho() {
+  const nick = S.me?.nick || S.user.email;
+  $("#who-mail").textContent = nick;
+  $("#avatar").textContent = nick.replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2).toUpperCase() || "?";
+  $("#avatar").style.background = S.me?.color || COLORS.azul;
+}
+function renderAccount() {
+  if (!document.activeElement?.closest("#profile-form")) {
+    $("#pf-color").innerHTML = Object.entries(COLORS).map(([n, c]) => `<option value="${c}" ${S.me?.color === c ? "selected" : ""}>${n[0].toUpperCase() + n.slice(1)}</option>`).join("");
+    $("#pf-nick").value = S.me?.nick || "";
+    $("#pf-rooms").value = (S.me?.room_nicks || []).join(", ");
+  }
+  $$(".admin-only").forEach(el => { el.hidden = !S.isAdmin; });
+  if (S.isAdmin) { loadMembers(); loadUsage(); }
+}
+$("#profile-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const row = {
+    user_id: S.user.id, nick: $("#pf-nick").value.trim().slice(0, 30), color: $("#pf-color").value,
+    room_nicks: $("#pf-rooms").value.split(",").map(x => x.trim()).filter(Boolean).slice(0, 10)
+  };
+  if (!row.nick) return;
+  try {
+    const r = await q(sb.from("profiles").upsert(row).select().single(), "salvar o perfil (rodou o SQL 008?)");
+    S.me = r; S.profiles = S.profiles.filter(p => p.user_id !== r.user_id).concat(r);
+    renderWho(); toast("Perfil salvo");
+  } catch { }
+});
+
+async function callAdmin(body) {
+  const { data: { session } } = await sb.auth.getSession();
+  const r = await fetch("/api/admin", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + (session?.access_token || "") }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 503 && j.error === "missing_secret") throw new Error("falta configurar a chave secreta do Supabase na Vercel (SUPABASE_SECRET_KEY)");
+  if (r.status === 404) throw new Error("a função de admin ainda não foi publicada");
+  if (!r.ok) throw new Error(j.detail || j.error || "HTTP " + r.status);
+  return j;
+}
+let membersCache = null, membersAt = 0;
+async function loadMembers(force = false) {
+  const box = $("#member-list");
+  if (!force && membersCache && Date.now() - membersAt < 30000) return renderMembers();
+  try { membersCache = (await callAdmin({ action: "members" })).members; membersAt = Date.now(); renderMembers(); }
+  catch (e) { setHTML(box, `<p class="hint err" style="margin:0">${esc(e.message)}</p>`); }
+}
+function renderMembers() {
+  const list = membersCache || [];
+  setHTML("#member-list", list.length ? list.map(m => {
+    const me = m.user_id === S.user.id;
+    const tags = [m.role === "admin" ? `<span class="mem-tag admin">admin</span>` : "", m.pending ? `<span class="mem-tag pend">convite pendente</span>` : "", m.banned ? `<span class="mem-tag ban">removido</span>` : ""].join("");
+    const last = m.last_sign_in_at ? `último acesso ${shortDate(iso(new Date(m.last_sign_in_at)))}` : "ainda não entrou";
+    return `<div class="sh" data-member="${m.user_id}" data-email="${esc(m.email || "")}">
+      <span class="avatar" style="background:${esc(m.color || COLORS.azul)};width:30px;height:30px;font-size:.72rem">${esc((m.nick || m.email || "?").slice(0, 2).toUpperCase())}</span>
+      <div class="t"><b>${esc(m.nick || "(sem nick)")}${me ? " (você)" : ""} ${tags}</b><span>${esc(m.email || "")} · ${last}</span></div>
+      ${me ? "" : `${m.pending ? `<button class="btn sm" type="button" data-mem-act="resend">Reenviar convite</button>` : ""}
+        <button class="btn sm danger" type="button" data-mem-act="remove">Remover</button>`}
+    </div>`;
+  }).join("") : `<p class="muted" style="margin:0">Ninguém ainda.</p>`);
+}
+$("#invite-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const email = $("#invite-email").value.trim(); if (!email) return;
+  const btn = $("#invite-btn"); btn.disabled = true; btn.textContent = "Enviando…";
+  try {
+    const r = await callAdmin({ action: "invite", email });
+    toast(r.note || `Convite enviado para ${email}`); $("#invite-email").value = "";
+    loadMembers(true);
+  } catch (err) { toast("Não deu para convidar: " + err.message, true); }
+  btn.disabled = false; btn.textContent = "Convidar";
+});
+$("#member-list").addEventListener("click", async e => {
+  const b = e.target.closest("[data-mem-act]"); if (!b) return;
+  const row = b.closest("[data-member]");
+  if (b.dataset.memAct === "remove" && !b.hasAttribute("data-armed")) { b.setAttribute("data-armed", ""); b.textContent = "Confirmar remoção"; return; }
+  b.disabled = true;
+  try {
+    if (b.dataset.memAct === "resend") { const r = await callAdmin({ action: "resend", email: row.dataset.email }); toast(r.note || "Convite reenviado"); }
+    else { await callAdmin({ action: "remove", user_id: row.dataset.member }); toast("Membro removido. Os dados dele ficam guardados, mas ele não entra mais."); }
+    loadMembers(true);
+  } catch (err) { toast(err.message, true); b.disabled = false; }
+});
+
+const LIMITS = { storage: 1024 ** 3, db: 500 * 1024 ** 2 }; // plano grátis do Supabase
+const mb = n => (n / 1024 ** 2).toLocaleString("pt-BR", { maximumFractionDigits: n < 100 * 1024 ** 2 ? 1 : 0 }) + " MB";
+let usageCache = null, usageAt = 0;
+async function getUsage(force = false) {
+  if (!force && usageCache && Date.now() - usageAt < 60000) return usageCache;
+  const { data, error } = await sb.rpc("admin_stats");
+  if (error) throw error;
+  usageCache = data; usageAt = Date.now(); return data;
+}
+async function loadUsage() {
+  try {
+    const u = await getUsage();
+    const bar = (label, used, limit) => {
+      const pct = Math.min(100, used / limit * 100);
+      return `<div class="usage-row"><div class="lbl2"><span>${label}</span><span>${mb(used)} de ${mb(limit)} · ${pct.toFixed(0)}%</span></div>
+        <div class="meter ${pct >= 90 ? "bad" : pct >= 80 ? "warn" : ""}"><i style="width:${pct.toFixed(1)}%"></i></div></div>`;
+    };
+    const month = new Date().toISOString().slice(0, 7);
+    const months = [...new Set((u.ai || []).map(x => x.month))].sort().reverse();
+    const table = m => {
+      const rows = (u.ai || []).filter(x => x.month === m);
+      const tot = rows.reduce((a, x) => a + (+x.cost || 0), 0), calls = rows.reduce((a, x) => a + (+x.calls || 0), 0);
+      return `<table class="ai-table"><thead><tr><th>Pessoa</th><th class="r">Leituras</th><th class="r">Gasto</th></tr></thead><tbody>
+        ${rows.map(x => `<tr><td>${esc(x.nick || nickOf(x.user_id))}</td><td class="r">${x.calls}</td><td class="r">US$ ${(+x.cost).toFixed(2)}</td></tr>`).join("")}
+        <tr><td><b>Total</b></td><td class="r"><b>${calls}</b></td><td class="r"><b>US$ ${tot.toFixed(2)}</b></td></tr></tbody></table>`;
+    };
+    setHTML("#usage-box", `
+      ${bar("Prints (armazenamento)", u.storage_bytes, LIMITS.storage)}
+      ${bar("Banco de dados", u.db_bytes, LIMITS.db)}
+      <p class="hint" style="margin:0 0 14px">Limites do plano grátis do Supabase. Quando passar de 80%, aparece um aviso no topo do site para você.</p>
+      <h3 style="font-size:.95rem;margin:0 0 6px">Gasto de IA por pessoa</h3>
+      ${months.length ? months.map(m => `<p class="muted" style="margin:10px 0 4px;font-size:.8rem">${m === month ? "Este mês" : m.split("-").reverse().join("/")}</p>${table(m)}`).join("") : `<p class="muted" style="margin:0">Ninguém usou a IA ainda nos últimos 3 meses.</p>`}
+      <p class="hint" style="margin-top:8px">Valores estimados pelos preços oficiais da Anthropic. O valor exato fica no painel da Anthropic.</p>`);
+  } catch (e) { setHTML("#usage-box", `<p class="hint err" style="margin:0">Não deu para carregar o uso: ${esc(e.message || e)} (rodou o SQL 008?)</p>`); }
+}
+async function checkUsageAlert() {
+  try {
+    const u = await getUsage(true);
+    const ps = u.storage_bytes / LIMITS.storage * 100, pd = u.db_bytes / LIMITS.db * 100;
+    const worst = Math.max(ps, pd);
+    const el = $("#admin-alert");
+    el.hidden = worst < 80;
+    if (worst >= 80) el.innerHTML = `⚠️ ${ps >= pd ? `Os prints já usam ${ps.toFixed(0)}% do armazenamento` : `O banco de dados já usa ${pd.toFixed(0)}% do espaço`} do plano grátis do Supabase. <a href="#ajustes">Ver uso</a> · hora de pensar no plano Pro.`;
+  } catch { }
+}
 
 // busca prints novos enviados pelo PC: ao voltar para a aba, ao abrir a caixa e a cada 20s com ela aberta
 let inboxBusy = false;

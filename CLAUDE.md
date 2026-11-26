@@ -11,6 +11,13 @@ Site pessoal (um único usuário, jogador profissional de poker, MTT) para organ
 
 - Função `api/hrc.js`: leituras sob demanda para o HRC. `mode: payouts` lê as faixas de premiação do print do lobby (Haiku); `mode: table` lê a mesa (Sonnet). O navegador (`js/hrc.js`, código puro) monta o .json no formato SharkScope (que o HRC importa) e um histórico de mão no formato PokerStars (para colar no HRC). Os resultados ficam salvos em `hands.hrc_payouts` e `hands.hrc_table`. Bounty PKO: as salas mostram metade (parte paga na eliminação) e o histórico PokerStars leva o total, então o valor lido é dobrado, exceto nas salas de `PKO_SHOWS_FULL_BOUNTY` em `js/config.js` (hoje só CoinPoker).
 
+## Contas e grupo (etapa 1 do swap)
+- Várias contas, cadastro fechado: só entra quem o admin convida em Ajustes → Membros (função `api/admin.js`, que usa a env `SUPABASE_SECRET_KEY` só no servidor e confere se quem chama é admin). Remover = sai do grupo e o login é bloqueado (dados ficam guardados).
+- Tabelas `profiles` (nick, cor, `room_nicks` = nicks nas salas, usados pela IA), `groups`, `group_members` (`role` admin/membro). Funções `is_group_member`, `shares_group_with`, `is_admin`. Perfis são visíveis para quem está no mesmo grupo.
+- Espaço pessoal continua 100% privado por dono (nem o admin vê as mãos dos outros). O fórum (etapa 2) vai mostrar só o que for postado com "Postar no swap".
+- Primeiro acesso: o link do convite abre a tela de escolher nick e senha (`#setpass`); "Esqueci minha senha" usa o mesmo fluxo (type=recovery).
+- `ai_usage`: cada chamada de IA registra tokens e custo estimado (`api/_usage.js`, preços Sonnet 5.5 US$2/10 e Haiku 5.5 US$0,10/0,50 por milhão). Só o admin vê, pela função `admin_stats` (que também devolve armazenamento e tamanho do banco). Aviso no topo para o admin acima de 80% do plano grátis.
+
 ## Modelo de dados
 - `hands`: dados da mão (sala, torneio, cartas, posição, stack inicial, board final, `situation` = resumo/história).
 - `hand_images`: prints da mão (`kind` = `mesa` ou `lobby`; prints com legenda começando por "lobby" viram `lobby` e a IA da mão ignora), com `caption` (legenda curta do jogador, estilo "cbet 1/3 C. Lead?").
@@ -39,10 +46,10 @@ Site pessoal (um único usuário, jogador profissional de poker, MTT) para organ
 - Todas as tabelas têm RLS `user_id = auth.uid()`. Prints ficam no bucket privado `hands`, em `<user_id>/<hand_id>/arquivo.jpg`.
 - Cadastro de novos usuários desligado no Supabase.
 - Interface em português do Brasil, tema escuro, menu lateral.
-- Salas usadas: PokerStars, GGPoker, CoinPoker, PartyPoker, iPoker, Bodog, YaPoker. Nick do hero: sluizg.
+- Salas usadas: PokerStars, GGPoker, CoinPoker, PartyPoker, iPoker, Bodog, YaPoker. Nicks nas salas vêm do perfil de cada um (`room_nicks`); o do dono é sluizg.
 - Ao adicionar uma coluna: atualizar `schema.sql`, criar `supabase/migrations/NNN_nome.sql` e avisar o dono para rodar.
 
 ## Próximos passos combinados
-- Sessões de grind (lucro, ROI, ABI, $/h).
-- Atalho no PC que envia o print direto, sem precisar colar no site.
-- Agrupar automaticamente prints da mesma mão.
+- Etapa 2 (fórum do swap): "Postar no swap", feed com filtros, discussão com @, reações (👍 concordo, 👎 discordo, 🤔 não entendi, 🔥 ótima, 📌 rever depois), "visto por" com nomes, avisos, votação às cegas, spoiler que esconde conclusão E discussão até clicar (vale também nos links públicos), editar/apagar e moderação do admin, busca.
+- Etapa 3: pauta do plantão (marcadas, ordenadas por votos, sai sozinha depois de respondida), treino com revisão espaçada usando as mãos resolvidas do grupo, agenda do grupo como camada opcional.
+- Não fazer: controle financeiro do swap (o time já tem), avisos no Discord, app de celular, painel de spots, limite de IA por pessoa.

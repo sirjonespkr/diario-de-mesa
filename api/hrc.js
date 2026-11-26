@@ -3,6 +3,7 @@
 //  mode "table":   lê o print da mesa (+ lobby) e devolve jogadores, stacks, bounties, blinds e ante.
 // O site monta o .json e o histórico no formato PokerStars a partir disso, sem gastar IA de novo.
 
+const { logUsage } = require("./_usage.js");
 const SUPABASE_URL = "https://setfwqbgnrdqjhdyyrwm.supabase.co";
 const SUPABASE_KEY = "sb_publishable_pgZwjSF38yBhEQo1B0AmRQ_JSn2O374";
 const MODEL_PAYOUTS = process.env.HRC_PAYOUTS_MODEL || "claude-haiku-5-5";
@@ -114,6 +115,7 @@ module.exports = async (req, res) => {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(503).json({ error: "missing_key" });
   if (!(await authOk(req))) return res.status(401).json({ error: "unauthorized" });
+  const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
 
   const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {});
   const mode = body.mode === "table" ? "table" : "payouts";
@@ -138,6 +140,7 @@ module.exports = async (req, res) => {
     });
     const j = await r.json();
     if (!r.ok) return res.status(502).json({ error: "ai_error", detail: j?.error?.message || `HTTP ${r.status}` });
+    await logUsage(token, mode === "table" ? "hrc_mesa" : "hrc_premiacao", model, j.usage);
     const out = readTool(j);
     if (!out) return res.status(502).json({ error: "ai_error", detail: "a IA respondeu sem os dados; tente de novo" });
     out.model = model;

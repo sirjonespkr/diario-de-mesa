@@ -21,7 +21,20 @@
     <label>E-mail<input type="email" id="login-email" autocomplete="email" required></label>
     <label>Senha<input type="password" id="login-pass" autocomplete="current-password" minlength="6" required></label>
     <button class="btn primary" type="submit" id="login-btn">Entrar</button>
-    <button class="btn ghost" type="button" id="signup-btn">Primeiro acesso? Criar minha conta</button>
+    <button class="btn ghost" type="button" id="forgot-btn">Esqueci minha senha</button>
+  </form>
+</section>
+
+<!-- PRIMEIRO ACESSO / NOVA SENHA -->
+<section id="setpass" class="login" hidden>
+  <form id="setpass-form" class="login-card">
+    <div class="brand big"><span class="chip">♠</span>Diário de Mesa</div>
+    <h2 id="sp-title" style="margin:0">Bem-vindo ao swap!</h2>
+    <p class="muted" id="sp-msg" style="margin:0">Escolha como vai aparecer para o pessoal e crie sua senha.</p>
+    <label id="sp-nick-wrap">Seu nick<input type="text" id="sp-nick" maxlength="30" autocomplete="nickname"></label>
+    <label>Nova senha<input type="password" id="sp-pass" autocomplete="new-password" minlength="6" required></label>
+    <label>Repita a senha<input type="password" id="sp-pass2" autocomplete="new-password" minlength="6" required></label>
+    <button class="btn primary" type="submit" id="sp-btn">Salvar e entrar</button>
   </form>
 </section>
 
@@ -60,6 +73,7 @@
     </header>
 
     <main class="main">
+      <div class="admin-alert" id="admin-alert" hidden></div>
       <!-- HOJE -->
       <section class="view" id="v-hoje">
         <div class="page-h"><div><div class="eyebrow">Hoje</div><h1 id="today-title">—</h1></div></div>
@@ -188,6 +202,33 @@
       <section class="view" id="v-ajustes" hidden>
         <div class="page-h"><div><div class="eyebrow">Configurações</div><h1>Ajustes</h1></div></div>
         <div class="card narrow">
+          <h2>Meu perfil</h2>
+          <form id="profile-form" class="stack" style="gap:12px">
+            <div class="f3" style="grid-template-columns:2fr 1fr">
+              <label>Nick (como o pessoal vê você)<input type="text" id="pf-nick" maxlength="30" required></label>
+              <label>Cor<select id="pf-color"></select></label>
+            </div>
+            <label>Seus nicks nas salas (separados por vírgula; ajudam a IA a achar você na mesa)<input type="text" id="pf-rooms" placeholder="ex.: sluizg, outroNick"></label>
+            <div class="row" style="justify-content:flex-end"><button class="btn primary sm" type="submit">Salvar perfil</button></div>
+          </form>
+        </div>
+
+        <div class="card narrow admin-only" style="margin-top:16px" hidden>
+          <div class="card-h"><h2>Membros do swap</h2><span class="muted" style="font-size:.78rem">só você vê</span></div>
+          <form class="addline two" id="invite-form">
+            <input type="email" id="invite-email" placeholder="E-mail de quem você quer convidar" required aria-label="E-mail do convite">
+            <button class="btn primary sm" type="submit" id="invite-btn">Convidar</button>
+          </form>
+          <p class="hint" style="margin:0">A pessoa recebe um e-mail com o link para criar a senha. Cada um tem o seu espaço privado; só vai para o swap o que a pessoa postar.</p>
+          <div class="share-list" id="member-list"><p class="muted" style="margin:0">Carregando…</p></div>
+        </div>
+
+        <div class="card narrow admin-only" style="margin-top:16px" hidden>
+          <div class="card-h"><h2>Uso do site</h2><span class="muted" style="font-size:.78rem">só você vê</span></div>
+          <div id="usage-box"><p class="muted" style="margin:0">Carregando…</p></div>
+        </div>
+
+        <div class="card narrow" style="margin-top:16px">
           <h2>Spots (tags das mãos)</h2>
           <form class="addline two" id="tag-form">
             <input type="text" id="tag-name" placeholder="Novo spot, ex.: float OOP" required aria-label="Novo spot">
@@ -204,12 +245,12 @@
           <h2>Atalho no PC</h2>
           <p class="muted" style="margin:0">Envia prints direto para a Caixa de entrada, sem IA. Não mexe no Win+Shift+S.</p>
           <ul class="muted" style="margin:0;padding-left:18px;line-height:1.8">
-            <li><kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd>: print da mão (prints com menos de 3 min de diferença entram na mesma mão)</li>
+            <li><kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd>: print da mão (prints com menos de 1 min de diferença entram na mesma mão)</li>
             <li><kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>: print começando uma mão nova</li>
             <li><kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd>: print do lobby da mão atual</li>
             <li class="hint">Se algum estiver ocupado no PC, o programa usa a próxima opção livre e mostra qual no aviso ao ligar.</li>
           </ul>
-          <p class="muted" style="margin:0">Para reinstalar em outro PC, baixe os 3 arquivos para a mesma pasta e abra “Iniciar atalho.vbs”:
+          <p class="muted" style="margin:0">Para instalar no seu PC: baixe os 3 arquivos para uma mesma pasta, abra “Iniciar atalho.vbs” e entre com o seu e-mail e senha do site:
             <a href="pc/DiarioDeMesa-Atalho.ps1" download>DiarioDeMesa-Atalho.ps1</a> ·
             <a href="pc/Iniciar%20atalho.vbs" download>Iniciar atalho.vbs</a> ·
             <a href="pc/Iniciar%20com%20o%20Windows.cmd" download>Iniciar com o Windows.cmd</a></p>

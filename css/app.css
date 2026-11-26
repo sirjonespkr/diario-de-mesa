@@ -324,6 +324,22 @@ dialog.show[open]{display:flex}
 .unsaved{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--gold);border-radius:10px;padding:10px 12px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
 .unsaved span{flex:1;min-width:180px;font-weight:600;color:var(--gold)}
 
+/* contas e admin */
+.admin-alert{background:var(--gold-soft);border:1px solid var(--gold);color:var(--ink);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:.88rem}
+.admin-alert a{color:var(--gold);font-weight:700}
+.meter{height:10px;border-radius:999px;background:var(--surface-2);overflow:hidden}
+.meter i{display:block;height:100%;background:var(--accent);border-radius:999px}
+.meter.warn i{background:var(--gold)} .meter.bad i{background:var(--red)}
+.usage-row{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.usage-row .lbl2{display:flex;justify-content:space-between;font-size:.84rem}
+.usage-row .lbl2 span:last-child{font-family:var(--f-mono);color:var(--muted)}
+.ai-table{width:100%;border-collapse:collapse;font-size:.86rem}
+.ai-table th{text-align:left;font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:6px 4px;border-bottom:1px solid var(--line)}
+.ai-table td{padding:7px 4px;border-bottom:1px solid var(--line)}
+.ai-table td.r,.ai-table th.r{text-align:right;font-family:var(--f-mono)}
+.mem-tag{font-size:.7rem;font-weight:700;border-radius:999px;padding:1px 8px;background:var(--surface-2);color:var(--muted)}
+.mem-tag.admin{background:var(--accent-soft);color:var(--accent)} .mem-tag.pend{background:var(--gold-soft);color:var(--gold)} .mem-tag.ban{background:var(--red-soft);color:var(--red)}
+
 /* caixa de entrada: tira de prints com separar/juntar */
 .inbox-card .ib-strip{display:flex;align-items:stretch;gap:4px;overflow-x:auto;padding:8px;background:var(--surface-2)}
 .inbox-card .ib-img{position:relative;flex:0 0 100px;max-width:100%;border-radius:6px;overflow:hidden;background:var(--bg)}

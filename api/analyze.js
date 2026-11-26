@@ -3,6 +3,7 @@
 // Precisa da variável de ambiente ANTHROPIC_API_KEY na Vercel.
 // Só responde a quem está logado no site (confere o token no Supabase).
 
+const { logUsage } = require("./_usage.js");
 const SUPABASE_URL = "https://setfwqbgnrdqjhdyyrwm.supabase.co";
 const SUPABASE_KEY = "sb_publishable_pgZwjSF38yBhEQo1B0AmRQ_JSn2O374";
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5";
@@ -126,6 +127,7 @@ module.exports = async (req, res) => {
     });
     const j = await r.json();
     if (!r.ok) return res.status(502).json({ error: "ai_error", detail: j?.error?.message || `HTTP ${r.status}` });
+    await logUsage(token, "mao", MODEL, j.usage);
     let out = (j.content || []).find(c => c.type === "tool_use")?.input;
     // às vezes listas chegam como texto JSON
     if (out && typeof out.decisions === "string") { try { out.decisions = JSON.parse(out.decisions); } catch { out.decisions = []; } }
