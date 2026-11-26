@@ -280,6 +280,8 @@ $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $null = $menu.Items.Add("Abrir Caixa de entrada", $null, { Start-Process "$SITE/#entrada" })
 $null = $menu.Items.Add("Próximo print começa mão nova", $null, { $st = Load-State; $st.handId = $null; Save-State $st; Notify "Ok" "O próximo print vai começar uma mão nova." })
 $miConta = $menu.Items.Add("Conta: (ainda não entrou)"); $miConta.Enabled = $false
+foreach ($r in $registered) { $mi = $menu.Items.Add("Atalho $r"); $mi.Enabled = $false }
+$null = $menu.Items.Add("-")
 $menu.add_Opening({ $miConta.Text = if ($script:email) { "Conta: $($script:email)" } else { "Conta: (ainda não entrou)" } })
 $null = $menu.Items.Add("Sair da conta neste PC", $null, { Remove-Item $SESSION_FILE, $STATE_FILE -ErrorAction SilentlyContinue; $script:access = $null; $script:email = $null; $tray.Text = "Diário de Mesa: sem conta"; Notify "Saiu da conta" "No próximo print ele pede o login de novo." })
 $null = $menu.Items.Add("Ver registro (para achar erros)", $null, { if (-not (Test-Path $LOG_FILE)) { Log "registro criado" }; Start-Process notepad.exe $LOG_FILE })
