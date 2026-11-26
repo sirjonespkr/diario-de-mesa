@@ -109,11 +109,15 @@ function Post-Json([string]$url, $body, [string]$token, [string]$prefer) {
   $bytes = [Text.Encoding]::UTF8.GetBytes(($body | ConvertTo-Json -Compress -Depth 5))
   return Invoke-RestMethod -Method Post -Uri $url -Headers $h -ContentType "application/json; charset=utf-8" -Body $bytes
 }
-$script:access = $null; $script:accessExp = [DateTime]::MinValue; $script:uid = $null
+$script:access = $null; $script:accessExp = [DateTime]::MinValue; $script:uid = $null; $script:email = $null
 function Use-Token($r) {
   $script:access = $r.access_token
   $script:accessExp = (Get-Date).AddSeconds([int]$r.expires_in - 60)
   $script:uid = $r.user.id
+  if ($script:email -ne $r.user.email) { Log "conta: $($r.user.email)" }
+  $script:email = $r.user.email
+  $t = "Diário de Mesa: $($r.user.email)"; if ($t.Length -gt 63) { $t = $t.Substring(0, 63) }
+  $tray.Text = $t
   Save-Session $r.refresh_token
 }
 function Get-Access {
@@ -134,7 +138,9 @@ function Get-Access {
 }
 
 # ---------------- captura ----------------
+$script:snipTimedOut = $false
 function Capture-Snip {
+  $script:snipTimedOut = $false
   $before = [HotkeyWindow]::GetClipboardSequenceNumber()
   Start-Process "ms-screenclip:"
   # espera o recorte por até 25 s; se você apertar um atalho de novo, para de esperar e começa o novo recorte
@@ -147,6 +153,7 @@ function Capture-Snip {
       try { if ([System.Windows.Forms.Clipboard]::ContainsImage()) { return [System.Windows.Forms.Clipboard]::GetImage() } } catch {}
     }
   }
+  $script:snipTimedOut = $true
   return $null
 }
 function To-Jpeg($img, [int]$max) {
@@ -172,7 +179,14 @@ function New-Hand([string]$token) {
 }
 function Send-Print([string]$kind, [bool]$forceNew) {
   $img = Capture-Snip
-  if (-not $img) { return }   # recorte cancelado: não envia nada
+  if (-not $img) {
+    # recorte cancelado: não envia nada. Se passou o tempo todo sem chegar imagem, avisa (antes isso falhava calado)
+    if ($script:snipTimedOut) {
+      Log "nenhum recorte chegou na área de transferência em 25 s"
+      Notify "Nenhum print chegou" "Se você recortou e nada foi enviado: abra a Ferramenta de Captura > Configurações e ligue 'Copiar automaticamente para a área de transferência'." $true
+    }
+    return
+  }
   $caption = $null
   if ($kind -eq "lobby") { $caption = "lobby" }
   elseif ($PEDIR_LEGENDA) { $caption = [Microsoft.VisualBasic.Interaction]::InputBox("Legenda do print (opcional):", "Diário de Mesa", "") }
@@ -209,6 +223,7 @@ function Send-Print([string]$kind, [bool]$forceNew) {
   }
   if ($kind -ne "lobby") { $st.count = [int]$st.count + 1; $st.lastTicks = $now }
   Save-State $st
+  Log "enviado ($kind) para a mão $($st.handId) da conta $($script:email)"
   if ($kind -eq "lobby") { Notify "Lobby enviado" "Anexado à mão atual na Caixa de entrada." }
   elseif ($isNew) { Notify "Mão nova na Caixa de entrada" "Print 1 enviado. Os próximos em até $JUNTAR_MINUTOS min entram na mesma mão." }
   else { Notify "Print $($st.count) enviado" "Junto com a mão atual na Caixa de entrada." }
@@ -264,14 +279,17 @@ $win.add_Hotkey({
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $null = $menu.Items.Add("Abrir Caixa de entrada", $null, { Start-Process "$SITE/#entrada" })
 $null = $menu.Items.Add("Próximo print começa mão nova", $null, { $st = Load-State; $st.handId = $null; Save-State $st; Notify "Ok" "O próximo print vai começar uma mão nova." })
-$null = $menu.Items.Add("Sair da conta neste PC", $null, { Remove-Item $SESSION_FILE -ErrorAction SilentlyContinue; $script:access = $null; Notify "Saiu da conta" "No próximo print ele pede o login de novo." })
+$miConta = $menu.Items.Add("Conta: (ainda não entrou)"); $miConta.Enabled = $false
+$menu.add_Opening({ $miConta.Text = if ($script:email) { "Conta: $($script:email)" } else { "Conta: (ainda não entrou)" } })
+$null = $menu.Items.Add("Sair da conta neste PC", $null, { Remove-Item $SESSION_FILE, $STATE_FILE -ErrorAction SilentlyContinue; $script:access = $null; $script:email = $null; $tray.Text = "Diário de Mesa: sem conta"; Notify "Saiu da conta" "No próximo print ele pede o login de novo." })
+$null = $menu.Items.Add("Ver registro (para achar erros)", $null, { if (-not (Test-Path $LOG_FILE)) { Log "registro criado" }; Start-Process notepad.exe $LOG_FILE })
 $null = $menu.Items.Add("-")
 $null = $menu.Items.Add("Fechar o atalho", $null, { $tray.Visible = $false; [System.Windows.Forms.Application]::Exit() })
 $tray.ContextMenuStrip = $menu
 $tray.add_DoubleClick({ Start-Process "$SITE/#entrada" })
 
 # login logo ao iniciar (só pede na primeira vez)
-try { $null = Get-Access } catch { Log "login: $($_.Exception.Message)" }
+try { $null = Get-Access } catch { Log "login: $($_.Exception.Message)"; Notify "Diário de Mesa: sem login" "Não entrou na conta ($($_.Exception.Message)). No primeiro print ele pede de novo." $true }
 
 $txt = if ($registered.Count) { "Ativos: " + ($registered -join ", ") } else { "Nenhum atalho ficou ativo." }
 if ($failed.Count) { $txt += ". Sem atalho livre para: " + ($failed -join ", ") }
